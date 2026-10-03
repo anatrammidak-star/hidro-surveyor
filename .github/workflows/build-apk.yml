@@ -22,7 +22,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.2'
+          flutter-version: '3.24.3'
           channel: 'stable'
 
       - name: Generate Clean App & Build
@@ -31,10 +31,10 @@ jobs:
           flutter create hydro_app --org id.go.menlhk --project-name hydro_surveyor
           cd hydro_app
 
-          # 2. Pasang plugin stabil yang dibutuhkan
+          # 2. Pasang plugin yang dibutuhkan
           flutter pub add camera geolocator image flutter_image_compress sqflite path pdf printing signature intl http
 
-          # 3. Kunci minSdkVersion ke 21 (syarat plugin camera)
+          # 3. Kunci minSdkVersion ke 21 di file gradle
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
 
