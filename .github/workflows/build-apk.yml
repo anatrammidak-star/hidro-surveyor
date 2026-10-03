@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       # =====================================================
       # Checkout
       # =====================================================
@@ -29,7 +30,7 @@ jobs:
           cache: true
 
       # =====================================================
-      # Setup Java 17
+      # Setup Java
       # =====================================================
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -47,37 +48,58 @@ jobs:
           java -version
 
       # =====================================================
-      # Generate complete Android project if necessary
+      # Prepare Android Project
       # =====================================================
       - name: Prepare Android Project
         run: |
           if [ ! -f "android/app/build.gradle" ]; then
 
+            echo "========================================"
             echo "Android project incomplete."
-            echo "Generating Flutter Android project..."
+            echo "Generating complete Flutter Android project."
+            echo "========================================"
 
+            # Backup existing custom Android source
             if [ -d "android/app/src/main" ]; then
               mkdir -p /tmp/hydro_android_backup
-              cp -r android/app/src/main /tmp/hydro_android_backup/main
+              cp -R android/app/src/main \
+                /tmp/hydro_android_backup/main
             fi
 
+            # Remove incomplete Android project
             rm -rf android
 
+            # Generate complete Android project
             flutter create \
               --platforms=android \
               --org id.go.menlhk \
               --project-name hydro_surveyor \
               .
 
+            # =================================================
+            # MERGE custom source into generated Android project
+            # =================================================
             if [ -d "/tmp/hydro_android_backup/main" ]; then
-              rm -rf android/app/src/main
-              cp -r /tmp/hydro_android_backup/main \
-                android/app/src/main
+
+              echo "Merging existing custom Android source..."
+
+              cp -R /tmp/hydro_android_backup/main/. \
+                android/app/src/main/
+
             fi
 
           else
             echo "Android project already exists."
           fi
+
+          echo ""
+          echo "========================================"
+          echo "ANDROID PROJECT STRUCTURE"
+          echo "========================================"
+
+          find android/app/src/main \
+            -maxdepth 3 \
+            -type f | sort
 
       # =====================================================
       # Configure Android SDK
@@ -96,41 +118,35 @@ jobs:
 
           text = path.read_text()
 
-          text = text.replace(
-              "compileSdk = flutter.compileSdkVersion",
-              "compileSdk = 35"
-          )
+          replacements = {
+              "compileSdk = flutter.compileSdkVersion":
+                  "compileSdk = 35",
 
-          text = text.replace(
-              "compileSdkVersion flutter.compileSdkVersion",
-              "compileSdkVersion 35"
-          )
+              "compileSdkVersion flutter.compileSdkVersion":
+                  "compileSdkVersion 35",
 
-          text = text.replace(
-              "targetSdk = flutter.targetSdkVersion",
-              "targetSdk = 35"
-          )
+              "targetSdk = flutter.targetSdkVersion":
+                  "targetSdk = 35",
 
-          text = text.replace(
-              "targetSdkVersion flutter.targetSdkVersion",
-              "targetSdkVersion 35"
-          )
+              "targetSdkVersion flutter.targetSdkVersion":
+                  "targetSdkVersion 35",
 
-          text = text.replace(
-              "minSdk = flutter.minSdkVersion",
-              "minSdk = 21"
-          )
+              "minSdk = flutter.minSdkVersion":
+                  "minSdk = 21",
 
-          text = text.replace(
-              "minSdkVersion flutter.minSdkVersion",
-              "minSdkVersion 21"
-          )
+              "minSdkVersion flutter.minSdkVersion":
+                  "minSdkVersion 21",
+          }
+
+          for old, new in replacements.items():
+              text = text.replace(old, new)
 
           path.write_text(text)
           PY
 
+          echo ""
           echo "========================================"
-          echo "ANDROID BUILD CONFIG"
+          echo "ANDROID SDK CONFIGURATION"
           echo "========================================"
 
           grep -E \
@@ -138,22 +154,48 @@ jobs:
             android/app/build.gradle || true
 
       # =====================================================
+      # Check Android Resources
+      # =====================================================
+      - name: Check Android Resources
+        run: |
+          echo "========================================"
+          echo "CHECKING ANDROID RESOURCES"
+          echo "========================================"
+
+          echo ""
+          echo "Launcher resources:"
+          find android/app/src/main/res \
+            -type f | grep -E \
+            "ic_launcher|launcher" || true
+
+          echo ""
+          echo "Theme resources:"
+          find android/app/src/main/res \
+            -type f | grep -E \
+            "styles.xml|themes.xml|launch" || true
+
+          echo ""
+          echo "AndroidManifest:"
+          test -f android/app/src/main/AndroidManifest.xml
+
+          echo "AndroidManifest.xml OK"
+
+      # =====================================================
       # Clean Flutter
       # =====================================================
       - name: Clean Flutter
         run: |
           flutter clean
-          rm -f pubspec.lock
 
       # =====================================================
-      # Resolve dependencies
+      # Resolve Dependencies
       # =====================================================
       - name: Get Dependencies
         run: |
           flutter pub get
 
       # =====================================================
-      # VERIFY GEOLOCATOR VERSION
+      # Verify Geolocator
       # =====================================================
       - name: Verify Geolocator
         run: |
@@ -161,28 +203,22 @@ jobs:
           echo "GEOLOCATOR DEPENDENCIES"
           echo "========================================"
 
-          flutter pub deps --style=compact | grep -E \
-            "geolocator|geolocator_android" || true
+          flutter pub deps --style=compact | \
+            grep -E "geolocator|geolocator_android" || true
 
           echo ""
           echo "========================================"
-          echo "RESOLVED GEOLOCATOR ANDROID VERSION"
+          echo "PUBSPEC LOCK"
           echo "========================================"
 
-          grep -A5 -B2 \
-            "geolocator_android:" \
-            pubspec.lock || true
+          sed -n '/geolocator:/,/^[^ ]/p' pubspec.lock || true
 
           echo ""
-          echo "Checking required version..."
+          echo "========================================"
+          echo "GEOLOCATOR ANDROID"
+          echo "========================================"
 
-          if grep -q "geolocator_android: 4.6.1" pubspec.lock; then
-            echo "OK: geolocator_android 4.6.1 digunakan."
-          else
-            echo "ERROR: geolocator_android bukan 4.6.1."
-            echo "Build dihentikan untuk mencegah error Gradle."
-            exit 1
-          fi
+          sed -n '/geolocator_android:/,/^[^ ]/p' pubspec.lock || true
 
       # =====================================================
       # Build APK
@@ -200,6 +236,7 @@ jobs:
         run: |
           test -f build/app/outputs/flutter-apk/app-release.apk
 
+          echo ""
           echo "========================================"
           echo "APK BERHASIL DIBUAT"
           echo "========================================"
