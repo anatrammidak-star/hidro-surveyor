@@ -24,33 +24,30 @@ jobs:
         with:
           flutter-version: '3.22.2'
           channel: 'stable'
-          cache: true
 
-      - name: Inisialisasi Android & Patch Kotlin & SDK
+      - name: Generate Fresh Flutter App & Build APK
         run: |
-          # 1. Hapus android lama agar tidak ada residu konfigurasi usang
-          rm -rf android
+          # 1. Buat project Flutter baru dan bersih dari nol
+          flutter create hydro_app --org id.go.menlhk --project-name hydro_surveyor
           
-          # 2. Generate android dengan Flutter 3.22 (Bawaan resmi Kotlin 1.9+)
-          flutter create . --org id.go.menlhk --project-name hydro_surveyor --platforms android
+          # 2. Pasang otomatis plugin-plugin yang dibutuhkan
+          cd hydro_app
+          flutter pub add geolocator image flutter_image_compress sqflite path pdf printing signature intl workmanager connectivity_plus http camera
           
-          # 3. Kunci minSdkVersion ke versi 21 (wajib untuk plugin camera)
-          find android/ -name "build.gradle" -exec sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' {} +
-          find android/ -name "build.gradle" -exec sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' {} +
+          # 3. Kunci minSdkVersion ke 21 di file gradle baru
+          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
 
-          # 4. Berikan izin eksekusi gradlew
-          if [ -f android/gradlew ]; then
-            chmod +x android/gradlew
+          # 4. Salin kode aplikasi (lib) kita ke project baru
+          if [ -d "../lib" ]; then
+            cp -r ../lib/* lib/
           fi
 
-      - name: Ambil Dependencies
-        run: flutter pub get
+          # 5. Build APK Release Universal
+          flutter build apk --release --no-tree-shake-icons
 
-      - name: Build APK Release
-        run: flutter build apk --release --no-tree-shake-icons
-
-      - name: Upload APK
+      - name: Upload APK Siap Pakai
         uses: actions/upload-artifact@v4
         with:
           name: HydroSurveyor-v1.0-Release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: hydro_app/build/app/outputs/flutter-apk/app-release.apk
