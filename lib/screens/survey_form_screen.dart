@@ -978,19 +978,11 @@ class _SurveyFormScreenState
       width: double.infinity,
       padding:
           const EdgeInsets.all(12),
-      decoration:
-          BoxDecoration(
-        color: color.withValues(
-          alpha: 0.10,
-        ),
-        borderRadius:
-            BorderRadius.circular(8),
-        border:
-            Border.all(
-          color:
-              color.withValues(
-            alpha: 0.35,
-          ),
+      decoration: BoxDecoration(
+        color: color.withValues(0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: color.withValues(0.35),
         ),
       ),
       child: Row(
