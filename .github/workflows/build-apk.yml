@@ -20,17 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       # =====================================================
-      # 2. JAVA 17
-      # =====================================================
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
-      # =====================================================
-      # 3. FLUTTER
+      # 2. SETUP FLUTTER
       # =====================================================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -40,72 +30,130 @@ jobs:
           cache: true
 
       # =====================================================
-      # 4. CHECK ENVIRONMENT
+      # 3. CHECK FLUTTER
       # =====================================================
-      - name: Check Environment
+      - name: Check Flutter Environment
         run: |
-          echo "===== FLUTTER ====="
+          echo "========================================"
+          echo "FLUTTER VERSION"
+          echo "========================================"
           flutter --version
 
-          echo "===== DART ====="
+          echo ""
+          echo "========================================"
+          echo "DART VERSION"
+          echo "========================================"
           dart --version
 
-          echo "===== JAVA ====="
-          java -version
-
       # =====================================================
-      # 5. CHECK PROJECT
+      # 4. CHECK ORIGINAL PROJECT
       # =====================================================
       - name: Check Project Structure
         run: |
-          echo "===== ROOT ====="
+          echo "========================================"
+          echo "PROJECT ROOT"
+          echo "========================================"
           ls -la
 
-          echo "===== ANDROID ====="
+          echo ""
+          echo "========================================"
+          echo "ANDROID FILES BEFORE REPAIR"
+          echo "========================================"
           find android -maxdepth 4 -type f 2>/dev/null | sort || true
 
-          echo "===== PUBSPEC ====="
-          cat pubspec.yaml
-
       # =====================================================
-      # 6. REPAIR / GENERATE ANDROID PROJECT
+      # 5. BACKUP CUSTOM ANDROID SOURCE
       # =====================================================
-      - name: Generate Missing Android Project Files
+      - name: Backup Android Source
         run: |
-          echo "Checking Android project..."
+          if [ -d "android/app/src/main" ]; then
+            echo "Backing up existing Android source..."
 
-          if [ ! -f "android/app/build.gradle" ]; then
+            mkdir -p /tmp/hydro_android_backup
 
-            echo "android/app/build.gradle NOT FOUND"
-            echo "Generating Android platform files..."
+            cp -r android/app/src/main \
+              /tmp/hydro_android_backup/main
 
-            # Backup custom Android source files
-            if [ -d "android/app/src/main" ]; then
-              mkdir -p /tmp/hydro_android_main
-              cp -r android/app/src/main/* /tmp/hydro_android_main/
-            fi
-
-            # Generate Android project
-            flutter create \
-              --platforms=android \
-              --org id.go.menlhk \
-              --project-name hydro_surveyor \
-              .
-
-            # Restore custom source files
-            if [ -d "/tmp/hydro_android_main" ]; then
-              cp -rf /tmp/hydro_android_main/* android/app/src/main/
-            fi
-
+            echo "Android source backup completed."
           else
-            echo "Android project already exists."
+            echo "No existing android/app/src/main found."
           fi
 
-          echo "===== ANDROID STRUCTURE AFTER REPAIR ====="
-          find android -maxdepth 4 -type f | sort
+      # =====================================================
+      # 6. GENERATE COMPLETE ANDROID PROJECT
+      # =====================================================
+      - name: Generate Android Project
+        run: |
+          echo "========================================"
+          echo "GENERATING ANDROID PLATFORM"
+          echo "========================================"
+
+          # Remove incomplete Android project.
+          # lib/ and pubspec.yaml remain untouched.
+          rm -rf android
+
+          flutter create \
+            --platforms=android \
+            --org id.go.menlhk \
+            --project-name hydro_surveyor \
+            .
+
+          echo ""
+          echo "Android project generated."
 
       # =====================================================
-      # 7. CONFIGURE ANDROID SDK
+      # 7. RESTORE CUSTOM ANDROID SOURCE
+      # =====================================================
+      - name: Restore Android Source
+        run: |
+          if [ -d "/tmp/hydro_android_backup/main" ]; then
+
+            echo "Restoring original Android source..."
+
+            rm -rf android/app/src/main
+
+            cp -r /tmp/hydro_android_backup/main \
+              android/app/src/main
+
+            echo "Original Android source restored."
+
+          else
+            echo "No custom Android source to restore."
+          fi
+
+      # =====================================================
+      # 8. SETUP JAVA 17
+      # =====================================================
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # =====================================================
+      # 9. CHECK JAVA / GRADLE STRUCTURE
+      # =====================================================
+      - name: Check Android Build System
+        run: |
+          echo "========================================"
+          echo "JAVA"
+          echo "========================================"
+          java -version
+
+          echo ""
+          echo "========================================"
+          echo "ANDROID PROJECT"
+          echo "========================================"
+          find android -maxdepth 4 -type f | sort
+
+          echo ""
+          echo "========================================"
+          echo "APP BUILD.GRADLE"
+          echo "========================================"
+          cat android/app/build.gradle
+
+      # =====================================================
+      # 10. CONFIGURE ANDROID SDK
       # =====================================================
       - name: Configure Android SDK
         run: |
@@ -116,12 +164,11 @@ jobs:
 
           if not path.exists():
               raise SystemExit(
-                  "ERROR: android/app/build.gradle masih tidak ditemukan."
+                  "ERROR: android/app/build.gradle tidak ditemukan."
               )
 
           text = path.read_text()
 
-          # Flutter generated Gradle configuration
           replacements = {
               "compileSdk = flutter.compileSdkVersion":
                   "compileSdk = 35",
@@ -147,14 +194,13 @@ jobs:
 
           path.write_text(text)
 
-          print("===== FINAL android/app/build.gradle =====")
-          print(path.read_text())
+          print("Android SDK configuration updated.")
           PY
 
       # =====================================================
-      # 8. LOCK IMPORTANT DEPENDENCY
+      # 11. LOCK GEOLOCATOR VERSION
       # =====================================================
-      - name: Stabilize Geolocator Version
+      - name: Lock Geolocator Version
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -168,32 +214,37 @@ jobs:
           )
 
           path.write_text(text)
+
+          print("Geolocator locked to 10.1.0")
           PY
 
-          echo "===== UPDATED PUBSPEC ====="
-          cat pubspec.yaml
-
       # =====================================================
-      # 9. FLUTTER CLEAN
+      # 12. FLUTTER CLEAN
       # =====================================================
       - name: Flutter Clean
-        run: flutter clean
+        run: |
+          flutter clean
 
       # =====================================================
-      # 10. GET DEPENDENCIES
+      # 13. GET DEPENDENCIES
       # =====================================================
       - name: Flutter Pub Get
-        run: flutter pub get
+        run: |
+          flutter pub get
 
       # =====================================================
-      # 11. SHOW DEPENDENCY TREE
+      # 14. CHECK DEPENDENCIES
       # =====================================================
       - name: Check Dependencies
         run: |
+          echo "========================================"
+          echo "DEPENDENCY TREE"
+          echo "========================================"
+
           flutter pub deps --style=compact
 
       # =====================================================
-      # 12. BUILD APK
+      # 15. BUILD RELEASE APK
       # =====================================================
       - name: Build Release APK
         run: |
@@ -203,23 +254,25 @@ jobs:
             --verbose
 
       # =====================================================
-      # 13. VERIFY APK
+      # 16. VERIFY APK
       # =====================================================
       - name: Verify APK
         run: |
-          echo "===== APK ====="
+          echo "========================================"
+          echo "APK OUTPUT"
+          echo "========================================"
 
           ls -lh build/app/outputs/flutter-apk/
 
           test -f build/app/outputs/flutter-apk/app-release.apk
 
           echo ""
-          echo "=========================================="
-          echo " HYDROSURVEYOR APK BUILD SUCCESSFUL"
-          echo "=========================================="
+          echo "========================================"
+          echo "HYDROSURVEYOR APK BUILD SUCCESSFUL"
+          echo "========================================"
 
       # =====================================================
-      # 14. UPLOAD APK
+      # 17. UPLOAD APK
       # =====================================================
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
