@@ -22,21 +22,21 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.6'
+          flutter-version: '3.22.2'
           channel: 'stable'
           cache: true
 
-      - name: Inisialisasi Android Asli Bawaan Flutter Modern
+      - name: Inisialisasi Android & Patch Kotlin & SDK
         run: |
-          # 1. Hapus folder android lama agar bersih total dari konflik sintaks
+          # 1. Hapus android lama agar tidak ada residu konfigurasi usang
           rm -rf android
           
-          # 2. Perintahkan Flutter 3.19.6 membuatkan folder android asli yang 100% kompatibel
+          # 2. Generate android dengan Flutter 3.22 (Bawaan resmi Kotlin 1.9+)
           flutter create . --org id.go.menlhk --project-name hydro_surveyor --platforms android
           
-          # 3. Ubah minSdkVersion menjadi 21 (wajib untuk plugin camera)
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+          # 3. Kunci minSdkVersion ke versi 21 (wajib untuk plugin camera)
+          find android/ -name "build.gradle" -exec sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' {} +
+          find android/ -name "build.gradle" -exec sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' {} +
 
           # 4. Berikan izin eksekusi gradlew
           if [ -f android/gradlew ]; then
