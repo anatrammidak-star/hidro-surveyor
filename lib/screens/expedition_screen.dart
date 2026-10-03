@@ -11,129 +11,122 @@ class ExpeditionScreen extends StatefulWidget {
 }
 
 class _ExpeditionScreenState extends State<ExpeditionScreen> {
-  final LocalDatabase _database = LocalDatabase.instance;
+  final _db = LocalDatabase.instance;
 
   List<Map<String, Object?>> _expeditions = [];
-  bool _loading = true;
+  int _pending = 0;
+  int _surveys = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadExpeditions();
+    _load();
   }
 
-  Future<void> _loadExpeditions() async {
-    setState(() {
-      _loading = true;
-    });
-
-    final data = await _database.getExpeditions();
+  Future<void> _load() async {
+    final expeditions = await _db.getExpeditions();
+    final pending = await _db.countPending();
+    final surveys = await _db.countSurveys();
 
     if (!mounted) return;
 
     setState(() {
-      _expeditions = data;
-      _loading = false;
+      _expeditions = expeditions;
+      _pending = pending;
+      _surveys = surveys;
     });
   }
 
-  Future<void> _createExpedition() async {
-    final nameController = TextEditingController();
-    final teamController = TextEditingController();
-    final locationController = TextEditingController();
+  Future<void> _newExpedition() async {
+    final nameCtrl = TextEditingController();
+    final teamCtrl = TextEditingController();
+    final locationCtrl = TextEditingController();
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Ekspedisi Baru'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nama ekspedisi',
-                    hintText: 'Contoh: Survei Potensi DAS XYZ',
-                  ),
+      builder: (context) => AlertDialog(
+        title: const Text('Ekspedisi Baru'),
+        content: SingleChildScrollView(
+          child: Column(
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nama kegiatan *',
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: teamController,
-                  decoration: const InputDecoration(
-                    labelText: 'Tim survei',
-                  ),
+              ),
+              TextField(
+                controller: teamCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Tim survei *',
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: locationController,
-                  decoration: const InputDecoration(
-                    labelText: 'Lokasi / wilayah',
-                  ),
+              ),
+              TextField(
+                controller: locationCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Lokasi umum / DAS',
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context, false);
-              },
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (nameController.text.trim().isEmpty) {
-                  return;
-                }
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (nameCtrl.text.trim().isEmpty ||
+                  teamCtrl.text.trim().isEmpty) {
+                return;
+              }
 
+              final id =
+                  'EKS-${DateTime.now().millisecondsSinceEpoch}';
+
+              await _db.createExpedition(
+                localId: id,
+                name: nameCtrl.text.trim(),
+                dateStart: DateTime.now(),
+                team: teamCtrl.text.trim(),
+                location: locationCtrl.text.trim(),
+              );
+
+              if (context.mounted) {
                 Navigator.pop(context, true);
-              },
-              child: const Text('Simpan'),
-            ),
-          ],
-        );
-      },
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
     );
 
-    if (result != true) return;
+    nameCtrl.dispose();
+    teamCtrl.dispose();
+    locationCtrl.dispose();
 
-    final now = DateTime.now();
-    final localId = 'EXP-${now.microsecondsSinceEpoch}';
-
-    await _database.insertExpedition({
-      'local_id': localId,
-      'name': nameController.text.trim(),
-      'date_start': now.toIso8601String(),
-      'team': teamController.text.trim(),
-      'location': locationController.text.trim(),
-      'sync_status': 'LOCAL',
-      'created_at': now.toIso8601String(),
-      'updated_at': now.toIso8601String(),
-    });
-
-    await _loadExpeditions();
+    if (result == true) {
+      _load();
+    }
   }
 
   Future<void> _openExpedition(
     Map<String, Object?> expedition,
   ) async {
-    final id = expedition['id'];
-
-    if (id is! int) return;
+    final id = expedition['id'] as int;
 
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SurveyFormScreen(
+        builder: (_) => SurveyListScreen(
           expeditionId: id,
-          expeditionName: expedition['name']?.toString() ?? '',
         ),
       ),
     );
 
-    await _loadExpeditions();
+    _load();
   }
 
   @override
@@ -141,98 +134,298 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('HydroSurveyor'),
+        backgroundColor: Colors.teal.shade800,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
       ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : _expeditions.isEmpty
-              ? _buildEmptyState()
-              : RefreshIndicator(
-                  onRefresh: _loadExpeditions,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _expeditions.length,
-                    itemBuilder: (context, index) {
-                      final expedition = _expeditions[index];
-
-                      return Card(
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            child: Icon(Icons.explore),
-                          ),
-                          title: Text(
-                            expedition['name']?.toString() ??
-                                'Tanpa nama',
-                          ),
-                          subtitle: Text(
-                            [
-                              expedition['team']
-                                      ?.toString()
-                                      .trim() ??
-                                  '',
-                              expedition['location']
-                                      ?.toString()
-                                      .trim() ??
-                                  '',
-                              'Status: ${expedition['sync_status'] ?? 'LOCAL'}',
-                            ].where((e) => e.isNotEmpty).join('\n'),
-                          ),
-                          isThreeLine: true,
-                          trailing: const Icon(
-                            Icons.chevron_right,
-                          ),
-                          onTap: () {
-                            _openExpedition(expedition);
-                          },
-                        ),
-                      );
-                    },
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _stat(
+                        'Pengukuran',
+                        '$_surveys',
+                        Icons.water,
+                      ),
+                    ),
+                    Expanded(
+                      child: _stat(
+                        'Pending',
+                        '$_pending',
+                        Icons.cloud_upload_outlined,
+                      ),
+                    ),
+                    Expanded(
+                      child: _stat(
+                        'Ekspedisi',
+                        '${_expeditions.length}',
+                        Icons.forest,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              color: Colors.amber.shade50,
+              child: const ListTile(
+                leading: Icon(Icons.offline_bolt),
+                title: Text('Offline-first aktif'),
+                subtitle: Text(
+                  'Data pengukuran disimpan di perangkat terlebih dahulu. '
+                  'Sinkronisasi server akan ditambahkan pada tahap berikutnya.',
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Ekspedisi',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createExpedition,
-        icon: const Icon(Icons.add),
-        label: const Text('Ekspedisi Baru'),
+                FilledButton.icon(
+                  onPressed: _newExpedition,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Baru'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (_expeditions.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'Belum ada ekspedisi. Buat ekspedisi untuk mulai '
+                    'mengumpulkan beberapa titik pengukuran secara terpisah.',
+                  ),
+                ),
+              )
+            else
+              ..._expeditions.map(
+                (e) => Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.forest),
+                    ),
+                    title: Text('${e['name']}'),
+                    subtitle: Text(
+                      '${e['team']}\n${e['location'] ?? '-'}',
+                    ),
+                    isThreeLine: true,
+                    trailing: const Icon(
+                      Icons.chevron_right,
+                    ),
+                    onTap: () => _openExpedition(e),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.explore_outlined,
-              size: 72,
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Belum ada ekspedisi',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Buat ekspedisi terlebih dahulu, '
-              'kemudian tambahkan pengukuran sungai '
-              'satu per satu.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _createExpedition,
-              icon: const Icon(Icons.add),
-              label: const Text('Buat Ekspedisi'),
-            ),
-          ],
+  Widget _stat(
+    String title,
+    String value,
+    IconData icon,
+  ) {
+    return Column(
+      children: [
+        Icon(
+          icon,
+          color: Colors.teal.shade700,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class SurveyListScreen extends StatefulWidget {
+  final int expeditionId;
+
+  const SurveyListScreen({
+    super.key,
+    required this.expeditionId,
+  });
+
+  @override
+  State<SurveyListScreen> createState() => _SurveyListScreenState();
+}
+
+class _SurveyListScreenState extends State<SurveyListScreen> {
+  final _db = LocalDatabase.instance;
+
+  List<Map<String, Object?>> _surveys = [];
+  Map<String, Object?>? _expedition;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final expedition =
+        await _db.getExpedition(widget.expeditionId);
+
+    final surveys =
+        await _db.getSurveysForExpedition(
+      widget.expeditionId,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _expedition = expedition;
+      _surveys = surveys;
+    });
+  }
+
+  Future<void> _newSurvey() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SurveyFormScreen(
+          expeditionId: widget.expeditionId,
         ),
       ),
+    );
+
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          '${_expedition?['name'] ?? 'Ekspedisi'}',
+        ),
+        backgroundColor: Colors.teal.shade800,
+        foregroundColor: Colors.white,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.forest),
+              title: Text(
+                '${_expedition?['local_id'] ?? ''}',
+              ),
+              subtitle: Text(
+                '${_surveys.length} titik/pengukuran tersimpan lokal',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_surveys.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Belum ada pengukuran. Anda dapat kembali '
+                  'beberapa jam atau hari kemudian dan menambahkan '
+                  'titik baru.',
+                ),
+              ),
+            )
+          else
+            ..._surveys.map(
+              (s) {
+                final power = s['power_output_kw'];
+
+                return Card(
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.water_drop,
+                      color: Colors.teal.shade700,
+                    ),
+                    title: Text(
+                      '${s['local_id']} — ${s['nama_sungai']}',
+                    ),
+                    subtitle: Text(
+                      '${s['waktu_survey']}\n'
+                      'Debit: '
+                      '${((s['discharge_cms'] as num?) ?? 0).toStringAsFixed(3)} '
+                      'm³/s'
+                      '${power == null ? '' : '\nPotensi: ${(power as num).toStringAsFixed(2)} kW'}',
+                    ),
+                    isThreeLine: true,
+                    trailing: _statusIcon(
+                      '${s['sync_status']}',
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _newSurvey,
+        icon: const Icon(
+          Icons.add_location_alt,
+        ),
+        label: const Text(
+          'Pengukuran Baru',
+        ),
+      ),
+    );
+  }
+
+  Widget _statusIcon(String status) {
+    if (status == 'SYNCED') {
+      return const Icon(
+        Icons.cloud_done,
+        color: Colors.green,
+      );
+    }
+
+    if (status == 'FAILED') {
+      return const Icon(
+        Icons.cloud_off,
+        color: Colors.red,
+      );
+    }
+
+    return const Icon(
+      Icons.cloud_upload_outlined,
+      color: Colors.orange,
     );
   }
 }
