@@ -31,12 +31,16 @@ jobs:
           flutter create hydro_app --org id.go.menlhk --project-name hydro_surveyor
           cd hydro_app
 
-          # 2. Pasang plugin yang dibutuhkan
-          flutter pub add camera geolocator image flutter_image_compress sqflite path pdf printing signature intl http
+          # 2. Pasang plugin dengan versi yang sangat stabil dan bebas bug evaluasi Gradle
+          flutter pub add "geolocator:^10.1.0" "camera:^0.10.5+9" "image:^4.1.7" "flutter_image_compress:^2.1.8" "sqflite:^2.3.2" "path:^1.9.0" "pdf:^3.10.8" "printing:^5.12.0" "signature:^5.3.3" "intl:^0.19.0" "http:^1.2.0"
 
-          # 3. Kunci minSdkVersion ke 21 di file gradle
-          sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+          # 3. Kunci compileSdk ke 35 dan minSdk ke 21 di file gradle
+          sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
+          sed -i 's/compileSdkVersion .*/compileSdkVersion 35/g' android/app/build.gradle
+          sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
+          sed -i 's/targetSdkVersion .*/targetSdkVersion 35/g' android/app/build.gradle
+          sed -i 's/minSdk = .*/minSdk = 21/g' android/app/build.gradle
+          sed -i 's/minSdkVersion .*/minSdkVersion 21/g' android/app/build.gradle
 
           # 4. Salin kode aplikasi (lib) ke project baru jika tersedia
           if [ -d "../lib" ]; then
