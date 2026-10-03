@@ -22,14 +22,30 @@ jobs:
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.x'
+          flutter-version: '3.19.6'
           channel: 'stable'
 
-      - name: Download Dependencies
+      - name: Inisialisasi Android Wrapper & Project Files
+        run: |
+          # Perintahkan Flutter menyusun ulang folder android lengkap versi modern
+          flutter create . --org id.go.menlhk --project-name hydro_surveyor
+          
+          # Pasang MainActivity Android Embedding v2 secara otomatis
+          mkdir -p android/app/src/main/kotlin/id/go/menlhk/hydro_surveyor
+          cat << 'EOF' > android/app/src/main/kotlin/id/go/menlhk/hydro_surveyor/MainActivity.kt
+          package id.go.menlhk.hydro_surveyor
+
+          import io.flutter.embedding.android.FlutterActivity
+
+          class MainActivity: FlutterActivity() {
+          }
+          EOF
+
+      - name: Ambil Dependencies
         run: flutter pub get
 
       - name: Compile APK Release Universal
-        run: flutter build apk --release
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
