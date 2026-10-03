@@ -27,39 +27,23 @@ jobs:
 
       - name: Generate Clean App & Build
         run: |
-          # 1. Buat project baru fresh
+          # 1. Buat direktori project baru yang fresh
           flutter create hydro_app --org id.go.menlhk --project-name hydro_surveyor
           cd hydro_app
 
-          # 2. Pasang dependensi yang stabil (buang plugin yang bikin crash gradle)
-          flutter pub add geolocator image flutter_image_compress sqflite path pdf printing signature intl http camera
+          # 2. Pasang plugin stabil yang dibutuhkan
+          flutter pub add camera geolocator image flutter_image_compress sqflite path pdf printing signature intl http
 
-          # 3. Kunci compileSdk 34 & minSdk 21 di android/app/build.gradle
-          sed -i 's/compileSdkVersion = .*/compileSdkVersion = 34/g' android/app/build.gradle
-          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle
+          # 3. Kunci minSdkVersion ke 21 (syarat plugin camera)
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
 
-          # 4. Injeksi compileSdkVersion 34 ke seluruh subproject agar semua library patuh
-          cat << 'EOF' >> android/build.gradle
-
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty("android")) {
-                      android {
-                          compileSdkVersion 34
-                      }
-                  }
-              }
-          }
-          EOF
-
-          # 5. Salin kode aplikasi (lib) ke project baru jika tersedia
+          # 4. Salin kode aplikasi (lib) ke project baru jika tersedia
           if [ -d "../lib" ]; then
             cp -r ../lib/* lib/
           fi
 
-          # 6. Kompilasi APK Release
+          # 5. Kompilasi APK Release
           flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK Siap Pakai
