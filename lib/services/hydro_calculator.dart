@@ -8,9 +8,9 @@ class HydroCalculator {
     required double surfaceVelocity,
     double? grossHead,
   }) {
-    final double area = width * depth * 0.75;
-    final double vMean = surfaceVelocity * 0.85;
-    final double discharge = area * vMean;
+    final area = width * depth * 0.75;
+    final vMean = surfaceVelocity * 0.85;
+    final discharge = area * vMean;
 
     if (mode == 'DISCHARGE_ONLY' || grossHead == null) {
       return {
@@ -23,18 +23,18 @@ class HydroCalculator {
       };
     }
 
-    final double netHead = grossHead * 0.92;
-    final double powerKw = gravity * discharge * netHead * 0.78 * 0.92;
+    final netHead = grossHead * 0.92;
+    final powerKw = gravity * discharge * netHead * 0.78 * 0.92;
 
-    String turbine = "Crossflow (Banki)";
+    String turbine;
     if (netHead > 50) {
-      turbine = "Pelton / Turgo";
-    } else if (netHead >= 15 && netHead <= 50) {
-      turbine = discharge > 1.2 ? "Francis" : "Turgo / Crossflow";
-    } else if (netHead >= 3 && netHead < 15) {
-      turbine = discharge > 0.6 ? "Kaplan / Propeller" : "Crossflow";
+      turbine = 'Pelton / Turgo';
+    } else if (netHead >= 15) {
+      turbine = discharge > 1.2 ? 'Francis' : 'Turgo / Crossflow';
+    } else if (netHead >= 3) {
+      turbine = discharge > 0.6 ? 'Kaplan / Propeller' : 'Crossflow';
     } else {
-      turbine = "Archimedes Screw / Vortex";
+      turbine = 'Archimedes Screw / Vortex';
     }
 
     return {
