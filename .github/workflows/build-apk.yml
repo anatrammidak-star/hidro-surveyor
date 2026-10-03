@@ -19,35 +19,35 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.6'
           channel: 'stable'
+          cache: true
 
-      - name: Inisialisasi Android Wrapper & Project Files
+      - name: Inisialisasi Android Wrapper & Set minSdkVersion 21
         run: |
-          # Perintahkan Flutter menyusun ulang folder android lengkap versi modern
-          flutter create . --org id.go.menlhk --project-name hydro_surveyor
+          # 1. Buat struktur android standar
+          flutter create . --org id.go.menlhk --project-name hydro_surveyor --platforms android
           
-          # Pasang MainActivity Android Embedding v2 secara otomatis
-          mkdir -p android/app/src/main/kotlin/id/go/menlhk/hydro_surveyor
-          cat << 'EOF' > android/app/src/main/kotlin/id/go/menlhk/hydro_surveyor/MainActivity.kt
-          package id.go.menlhk.hydro_surveyor
+          # 2. Set minSdkVersion ke 21 secara otomatis (syarat wajib plugin camera)
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
+          sed -i 's/minSdkVersion 16/minSdkVersion 21/g' android/app/build.gradle
+          sed -i 's/minSdkVersion 19/minSdkVersion 21/g' android/app/build.gradle
 
-          import io.flutter.embedding.android.FlutterActivity
-
-          class MainActivity: FlutterActivity() {
-          }
-          EOF
+          # 3. Berikan izin eksekusi penuh pada gradlew
+          if [ -f android/gradlew ]; then
+            chmod +x android/gradlew
+          fi
 
       - name: Ambil Dependencies
         run: flutter pub get
 
-      - name: Compile APK Release Universal
+      - name: Build APK Release
         run: flutter build apk --release --no-tree-shake-icons
 
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: HydroSurveyor-v1.0-Release
