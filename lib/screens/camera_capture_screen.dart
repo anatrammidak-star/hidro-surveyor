@@ -461,7 +461,9 @@ class _CameraCaptureScreenState
   }
 
   Widget _buildControlPanel() {
-    return Container(
+  return SafeArea(
+    top: false,
+    child: Container(
       padding: const EdgeInsets.fromLTRB(
         12,
         10,
@@ -623,15 +625,13 @@ class _CameraCaptureScreenState
               Expanded(
                 child: Text(
                   '${_media.length} dokumentasi tersimpan',
-                  style:
-                      const TextStyle(
+                  style: const TextStyle(
                     fontSize: 12,
                   ),
                 ),
               ),
               OutlinedButton(
-                onPressed:
-                    _recording ? null : _finish,
+                onPressed: _recording ? null : _finish,
                 child: const Text(
                   'Selesai',
                 ),
@@ -640,6 +640,6 @@ class _CameraCaptureScreenState
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
 }
