@@ -1,57 +1,229 @@
-name: Build Release APK Gratis
+name: Build HydroSurveyor APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches:
+      - main
+      - master
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+
+      # =====================================================
+      # 1. CHECKOUT
+      # =====================================================
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      # =====================================================
+      # 2. JAVA 17
+      # =====================================================
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
+          cache: gradle
 
+      # =====================================================
+      # 3. FLUTTER
+      # =====================================================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.3'
-          channel: 'stable'
+          channel: stable
+          cache: true
 
-      - name: Generate Clean App & Build
+      # =====================================================
+      # 4. CHECK ENVIRONMENT
+      # =====================================================
+      - name: Check Environment
         run: |
-          # 1. Buat direktori project baru yang fresh
-          flutter create hydro_app --org id.go.menlhk --project-name hydro_surveyor
-          cd hydro_app
+          echo "===== FLUTTER ====="
+          flutter --version
 
-          # 2. Pasang plugin dengan versi yang sangat stabil dan bebas bug evaluasi Gradle
-          flutter pub add "geolocator:^10.1.0" "camera:^0.10.5+9" "image:^4.1.7" "flutter_image_compress:^2.1.8" "sqflite:^2.3.2" "path:^1.9.0" "pdf:^3.10.8" "printing:^5.12.0" "signature:^5.3.3" "intl:^0.19.0" "http:^1.2.0"
+          echo "===== DART ====="
+          dart --version
 
-          # 3. Kunci compileSdk ke 35 dan minSdk ke 21 di file gradle
-          sed -i 's/compileSdk = .*/compileSdk = 35/g' android/app/build.gradle
-          sed -i 's/compileSdkVersion .*/compileSdkVersion 35/g' android/app/build.gradle
-          sed -i 's/targetSdk = .*/targetSdk = 35/g' android/app/build.gradle
-          sed -i 's/targetSdkVersion .*/targetSdkVersion 35/g' android/app/build.gradle
-          sed -i 's/minSdk = .*/minSdk = 21/g' android/app/build.gradle
-          sed -i 's/minSdkVersion .*/minSdkVersion 21/g' android/app/build.gradle
+          echo "===== JAVA ====="
+          java -version
 
-          # 4. Salin kode aplikasi (lib) ke project baru jika tersedia
-          if [ -d "../lib" ]; then
-            cp -r ../lib/* lib/
+      # =====================================================
+      # 5. CHECK PROJECT
+      # =====================================================
+      - name: Check Project Structure
+        run: |
+          echo "===== ROOT ====="
+          ls -la
+
+          echo "===== ANDROID ====="
+          find android -maxdepth 4 -type f 2>/dev/null | sort || true
+
+          echo "===== PUBSPEC ====="
+          cat pubspec.yaml
+
+      # =====================================================
+      # 6. REPAIR / GENERATE ANDROID PROJECT
+      # =====================================================
+      - name: Generate Missing Android Project Files
+        run: |
+          echo "Checking Android project..."
+
+          if [ ! -f "android/app/build.gradle" ]; then
+
+            echo "android/app/build.gradle NOT FOUND"
+            echo "Generating Android platform files..."
+
+            # Backup custom Android source files
+            if [ -d "android/app/src/main" ]; then
+              mkdir -p /tmp/hydro_android_main
+              cp -r android/app/src/main/* /tmp/hydro_android_main/
+            fi
+
+            # Generate Android project
+            flutter create \
+              --platforms=android \
+              --org id.go.menlhk \
+              --project-name hydro_surveyor \
+              .
+
+            # Restore custom source files
+            if [ -d "/tmp/hydro_android_main" ]; then
+              cp -rf /tmp/hydro_android_main/* android/app/src/main/
+            fi
+
+          else
+            echo "Android project already exists."
           fi
 
-          # 5. Kompilasi APK Release
-          flutter build apk --release --no-tree-shake-icons
+          echo "===== ANDROID STRUCTURE AFTER REPAIR ====="
+          find android -maxdepth 4 -type f | sort
 
-      - name: Upload APK Siap Pakai
+      # =====================================================
+      # 7. CONFIGURE ANDROID SDK
+      # =====================================================
+      - name: Configure Android SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/build.gradle")
+
+          if not path.exists():
+              raise SystemExit(
+                  "ERROR: android/app/build.gradle masih tidak ditemukan."
+              )
+
+          text = path.read_text()
+
+          # Flutter generated Gradle configuration
+          replacements = {
+              "compileSdk = flutter.compileSdkVersion":
+                  "compileSdk = 35",
+
+              "compileSdkVersion flutter.compileSdkVersion":
+                  "compileSdkVersion 35",
+
+              "targetSdk = flutter.targetSdkVersion":
+                  "targetSdk = 35",
+
+              "targetSdkVersion flutter.targetSdkVersion":
+                  "targetSdkVersion 35",
+
+              "minSdk = flutter.minSdkVersion":
+                  "minSdk = 21",
+
+              "minSdkVersion flutter.minSdkVersion":
+                  "minSdkVersion 21",
+          }
+
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          path.write_text(text)
+
+          print("===== FINAL android/app/build.gradle =====")
+          print(path.read_text())
+          PY
+
+      # =====================================================
+      # 8. LOCK IMPORTANT DEPENDENCY
+      # =====================================================
+      - name: Stabilize Geolocator Version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("pubspec.yaml")
+          text = path.read_text()
+
+          text = text.replace(
+              "geolocator: ^10.1.0",
+              "geolocator: 10.1.0"
+          )
+
+          path.write_text(text)
+          PY
+
+          echo "===== UPDATED PUBSPEC ====="
+          cat pubspec.yaml
+
+      # =====================================================
+      # 9. FLUTTER CLEAN
+      # =====================================================
+      - name: Flutter Clean
+        run: flutter clean
+
+      # =====================================================
+      # 10. GET DEPENDENCIES
+      # =====================================================
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      # =====================================================
+      # 11. SHOW DEPENDENCY TREE
+      # =====================================================
+      - name: Check Dependencies
+        run: |
+          flutter pub deps --style=compact
+
+      # =====================================================
+      # 12. BUILD APK
+      # =====================================================
+      - name: Build Release APK
+        run: |
+          flutter build apk \
+            --release \
+            --no-tree-shake-icons \
+            --verbose
+
+      # =====================================================
+      # 13. VERIFY APK
+      # =====================================================
+      - name: Verify APK
+        run: |
+          echo "===== APK ====="
+
+          ls -lh build/app/outputs/flutter-apk/
+
+          test -f build/app/outputs/flutter-apk/app-release.apk
+
+          echo ""
+          echo "=========================================="
+          echo " HYDROSURVEYOR APK BUILD SUCCESSFUL"
+          echo "=========================================="
+
+      # =====================================================
+      # 14. UPLOAD APK
+      # =====================================================
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: HydroSurveyor-v1.0-Release
-          path: hydro_app/build/app/outputs/flutter-apk/app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
