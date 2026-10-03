@@ -12,16 +12,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # =====================================================
-      # 1. CHECKOUT
-      # =====================================================
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # =====================================================
-      # 2. SETUP FLUTTER
-      # =====================================================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -29,131 +22,53 @@ jobs:
           channel: stable
           cache: true
 
-      # =====================================================
-      # 3. CHECK FLUTTER
-      # =====================================================
-      - name: Check Flutter Environment
-        run: |
-          echo "========================================"
-          echo "FLUTTER VERSION"
-          echo "========================================"
-          flutter --version
-
-          echo ""
-          echo "========================================"
-          echo "DART VERSION"
-          echo "========================================"
-          dart --version
-
-      # =====================================================
-      # 4. CHECK ORIGINAL PROJECT
-      # =====================================================
-      - name: Check Project Structure
-        run: |
-          echo "========================================"
-          echo "PROJECT ROOT"
-          echo "========================================"
-          ls -la
-
-          echo ""
-          echo "========================================"
-          echo "ANDROID FILES BEFORE REPAIR"
-          echo "========================================"
-          find android -maxdepth 4 -type f 2>/dev/null | sort || true
-
-      # =====================================================
-      # 5. BACKUP CUSTOM ANDROID SOURCE
-      # =====================================================
-      - name: Backup Android Source
-        run: |
-          if [ -d "android/app/src/main" ]; then
-            echo "Backing up existing Android source..."
-
-            mkdir -p /tmp/hydro_android_backup
-
-            cp -r android/app/src/main \
-              /tmp/hydro_android_backup/main
-
-            echo "Android source backup completed."
-          else
-            echo "No existing android/app/src/main found."
-          fi
-
-      # =====================================================
-      # 6. GENERATE COMPLETE ANDROID PROJECT
-      # =====================================================
-      - name: Generate Android Project
-        run: |
-          echo "========================================"
-          echo "GENERATING ANDROID PLATFORM"
-          echo "========================================"
-
-          # Remove incomplete Android project.
-          # lib/ and pubspec.yaml remain untouched.
-          rm -rf android
-
-          flutter create \
-            --platforms=android \
-            --org id.go.menlhk \
-            --project-name hydro_surveyor \
-            .
-
-          echo ""
-          echo "Android project generated."
-
-      # =====================================================
-      # 7. RESTORE CUSTOM ANDROID SOURCE
-      # =====================================================
-      - name: Restore Android Source
-        run: |
-          if [ -d "/tmp/hydro_android_backup/main" ]; then
-
-            echo "Restoring original Android source..."
-
-            rm -rf android/app/src/main
-
-            cp -r /tmp/hydro_android_backup/main \
-              android/app/src/main
-
-            echo "Original Android source restored."
-
-          else
-            echo "No custom Android source to restore."
-          fi
-
-      # =====================================================
-      # 8. SETUP JAVA 17
-      # =====================================================
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # =====================================================
-      # 9. CHECK JAVA / GRADLE STRUCTURE
-      # =====================================================
-      - name: Check Android Build System
+      - name: Check Environment
         run: |
-          echo "========================================"
-          echo "JAVA"
-          echo "========================================"
+          flutter --version
+          dart --version
           java -version
 
-          echo ""
-          echo "========================================"
-          echo "ANDROID PROJECT"
-          echo "========================================"
-          find android -maxdepth 4 -type f | sort
+      # =====================================================
+      # Generate complete Android project if necessary
+      # =====================================================
+      - name: Prepare Android Project
+        run: |
+          if [ ! -f "android/app/build.gradle" ]; then
 
-          echo ""
-          echo "========================================"
-          echo "APP BUILD.GRADLE"
-          echo "========================================"
-          cat android/app/build.gradle
+            echo "Android project incomplete."
+            echo "Generating Flutter Android project..."
+
+            if [ -d "android/app/src/main" ]; then
+              mkdir -p /tmp/hydro_android_backup
+              cp -r android/app/src/main /tmp/hydro_android_backup/main
+            fi
+
+            rm -rf android
+
+            flutter create \
+              --platforms=android \
+              --org id.go.menlhk \
+              --project-name hydro_surveyor \
+              .
+
+            if [ -d "/tmp/hydro_android_backup/main" ]; then
+              rm -rf android/app/src/main
+              cp -r /tmp/hydro_android_backup/main \
+                android/app/src/main
+            fi
+
+          else
+            echo "Android project already exists."
+          fi
 
       # =====================================================
-      # 10. CONFIGURE ANDROID SDK
+      # Configure Android
       # =====================================================
       - name: Configure Android SDK
         run: |
@@ -162,117 +77,96 @@ jobs:
 
           path = Path("android/app/build.gradle")
 
-          if not path.exists():
-              raise SystemExit(
-                  "ERROR: android/app/build.gradle tidak ditemukan."
-              )
-
-          text = path.read_text()
-
-          replacements = {
-              "compileSdk = flutter.compileSdkVersion":
-                  "compileSdk = 35",
-
-              "compileSdkVersion flutter.compileSdkVersion":
-                  "compileSdkVersion 35",
-
-              "targetSdk = flutter.targetSdkVersion":
-                  "targetSdk = 35",
-
-              "targetSdkVersion flutter.targetSdkVersion":
-                  "targetSdkVersion 35",
-
-              "minSdk = flutter.minSdkVersion":
-                  "minSdk = 21",
-
-              "minSdkVersion flutter.minSdkVersion":
-                  "minSdkVersion 21",
-          }
-
-          for old, new in replacements.items():
-              text = text.replace(old, new)
-
-          path.write_text(text)
-
-          print("Android SDK configuration updated.")
-          PY
-
-      # =====================================================
-      # 11. LOCK GEOLOCATOR VERSION
-      # =====================================================
-      - name: Lock Geolocator Version
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("pubspec.yaml")
           text = path.read_text()
 
           text = text.replace(
-              "geolocator: ^10.1.0",
-              "geolocator: 10.1.0"
+              "compileSdk = flutter.compileSdkVersion",
+              "compileSdk = 35"
+          )
+
+          text = text.replace(
+              "compileSdkVersion flutter.compileSdkVersion",
+              "compileSdkVersion 35"
+          )
+
+          text = text.replace(
+              "targetSdk = flutter.targetSdkVersion",
+              "targetSdk = 35"
+          )
+
+          text = text.replace(
+              "targetSdkVersion flutter.targetSdkVersion",
+              "targetSdkVersion 35"
+          )
+
+          text = text.replace(
+              "minSdk = flutter.minSdkVersion",
+              "minSdk = 21"
+          )
+
+          text = text.replace(
+              "minSdkVersion flutter.minSdkVersion",
+              "minSdkVersion 21"
           )
 
           path.write_text(text)
-
-          print("Geolocator locked to 10.1.0")
           PY
 
       # =====================================================
-      # 12. FLUTTER CLEAN
+      # Clean old dependency state
       # =====================================================
-      - name: Flutter Clean
+      - name: Clean Flutter
         run: |
           flutter clean
+          rm -f pubspec.lock
 
       # =====================================================
-      # 13. GET DEPENDENCIES
+      # Resolve dependencies
       # =====================================================
-      - name: Flutter Pub Get
+      - name: Get Dependencies
         run: |
           flutter pub get
 
       # =====================================================
-      # 14. CHECK DEPENDENCIES
+      # VERIFY GEOLOCATOR VERSION
       # =====================================================
-      - name: Check Dependencies
+      - name: Verify Geolocator
         run: |
           echo "========================================"
-          echo "DEPENDENCY TREE"
+          echo "GEOLOCATOR DEPENDENCIES"
           echo "========================================"
 
-          flutter pub deps --style=compact
+          flutter pub deps --style=compact | grep -E \
+            "geolocator|geolocator_android" || true
+
+          echo ""
+          echo "Checking resolved version..."
+
+          grep -A5 -B2 \
+            "geolocator_android:" \
+            pubspec.lock || true
 
       # =====================================================
-      # 15. BUILD RELEASE APK
+      # Build APK
       # =====================================================
       - name: Build Release APK
         run: |
           flutter build apk \
             --release \
-            --no-tree-shake-icons \
-            --verbose
+            --no-tree-shake-icons
 
       # =====================================================
-      # 16. VERIFY APK
+      # Verify
       # =====================================================
       - name: Verify APK
         run: |
-          echo "========================================"
-          echo "APK OUTPUT"
-          echo "========================================"
-
-          ls -lh build/app/outputs/flutter-apk/
-
           test -f build/app/outputs/flutter-apk/app-release.apk
 
-          echo ""
-          echo "========================================"
-          echo "HYDROSURVEYOR APK BUILD SUCCESSFUL"
-          echo "========================================"
+          ls -lh \
+            build/app/outputs/flutter-apk/app-release.apk
 
       # =====================================================
-      # 17. UPLOAD APK
+      # Upload
       # =====================================================
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
