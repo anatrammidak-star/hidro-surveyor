@@ -25,25 +25,41 @@ jobs:
           flutter-version: '3.22.2'
           channel: 'stable'
 
-      - name: Generate Fresh Flutter App & Build APK
+      - name: Generate Clean App & Build
         run: |
-          # 1. Buat project Flutter baru dan bersih dari nol
+          # 1. Buat project baru fresh
           flutter create hydro_app --org id.go.menlhk --project-name hydro_surveyor
-          
-          # 2. Pasang otomatis plugin-plugin yang dibutuhkan
           cd hydro_app
-          flutter pub add geolocator image flutter_image_compress sqflite path pdf printing signature intl workmanager connectivity_plus http camera
-          
-          # 3. Kunci minSdkVersion ke 21 di file gradle baru
+
+          # 2. Pasang dependensi yang stabil (buang plugin yang bikin crash gradle)
+          flutter pub add geolocator image flutter_image_compress sqflite path pdf printing signature intl http camera
+
+          # 3. Kunci compileSdk 34 & minSdk 21 di android/app/build.gradle
+          sed -i 's/compileSdkVersion = .*/compileSdkVersion = 34/g' android/app/build.gradle
+          sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle
           sed -i 's/minSdkVersion = flutter.minSdkVersion/minSdkVersion = 21/g' android/app/build.gradle
           sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 21/g' android/app/build.gradle
 
-          # 4. Salin kode aplikasi (lib) kita ke project baru
+          # 4. Injeksi compileSdkVersion 34 ke seluruh subproject agar semua library patuh
+          cat << 'EOF' >> android/build.gradle
+
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty("android")) {
+                      android {
+                          compileSdkVersion 34
+                      }
+                  }
+              }
+          }
+          EOF
+
+          # 5. Salin kode aplikasi (lib) ke project baru jika tersedia
           if [ -d "../lib" ]; then
             cp -r ../lib/* lib/
           fi
 
-          # 5. Build APK Release Universal
+          # 6. Kompilasi APK Release
           flutter build apk --release --no-tree-shake-icons
 
       - name: Upload APK Siap Pakai
