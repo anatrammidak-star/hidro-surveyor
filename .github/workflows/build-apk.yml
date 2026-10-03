@@ -12,9 +12,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # =====================================================
+      # Checkout
+      # =====================================================
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      # =====================================================
+      # Setup Flutter
+      # =====================================================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -22,12 +28,18 @@ jobs:
           channel: stable
           cache: true
 
+      # =====================================================
+      # Setup Java 17
+      # =====================================================
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+      # =====================================================
+      # Check Environment
+      # =====================================================
       - name: Check Environment
         run: |
           flutter --version
@@ -68,7 +80,7 @@ jobs:
           fi
 
       # =====================================================
-      # Configure Android
+      # Configure Android SDK
       # =====================================================
       - name: Configure Android SDK
         run: |
@@ -76,6 +88,11 @@ jobs:
           from pathlib import Path
 
           path = Path("android/app/build.gradle")
+
+          if not path.exists():
+              raise SystemExit(
+                  "ERROR: android/app/build.gradle tidak ditemukan."
+              )
 
           text = path.read_text()
 
@@ -112,8 +129,16 @@ jobs:
           path.write_text(text)
           PY
 
+          echo "========================================"
+          echo "ANDROID BUILD CONFIG"
+          echo "========================================"
+
+          grep -E \
+            "compileSdk|targetSdk|minSdk" \
+            android/app/build.gradle || true
+
       # =====================================================
-      # Clean old dependency state
+      # Clean Flutter
       # =====================================================
       - name: Clean Flutter
         run: |
@@ -140,11 +165,24 @@ jobs:
             "geolocator|geolocator_android" || true
 
           echo ""
-          echo "Checking resolved version..."
+          echo "========================================"
+          echo "RESOLVED GEOLOCATOR ANDROID VERSION"
+          echo "========================================"
 
           grep -A5 -B2 \
             "geolocator_android:" \
             pubspec.lock || true
+
+          echo ""
+          echo "Checking required version..."
+
+          if grep -q "geolocator_android: 4.6.1" pubspec.lock; then
+            echo "OK: geolocator_android 4.6.1 digunakan."
+          else
+            echo "ERROR: geolocator_android bukan 4.6.1."
+            echo "Build dihentikan untuk mencegah error Gradle."
+            exit 1
+          fi
 
       # =====================================================
       # Build APK
@@ -156,17 +194,21 @@ jobs:
             --no-tree-shake-icons
 
       # =====================================================
-      # Verify
+      # Verify APK
       # =====================================================
       - name: Verify APK
         run: |
           test -f build/app/outputs/flutter-apk/app-release.apk
 
+          echo "========================================"
+          echo "APK BERHASIL DIBUAT"
+          echo "========================================"
+
           ls -lh \
             build/app/outputs/flutter-apk/app-release.apk
 
       # =====================================================
-      # Upload
+      # Upload APK
       # =====================================================
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
