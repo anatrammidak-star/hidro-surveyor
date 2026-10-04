@@ -1,5 +1,10 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
 import '../services/local_database.dart';
 import 'camera_capture_screen.dart';
@@ -51,6 +56,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
   String? _gpsError;
 
   CameraCaptureResult? _media;
+  final List<CapturedMedia> _uploadedMedia = [];
 
   // ---------------------------------------------------------------------------
   // FIELD CORRECTION PROFILE
@@ -236,6 +242,165 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
   }
 
   // ---------------------------------------------------------------------------
+  // UPLOAD / IMPORT MEDIA
+  // ---------------------------------------------------------------------------
+
+  Future<void> _openMediaPicker() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: true,
+        type: FileType.media,
+        withData: false,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final appDir = await getApplicationDocumentsDirectory();
+      final mediaRoot = Directory(
+        path.join(appDir.path, 'hydro_surveyor_media'),
+      );
+
+      if (!await mediaRoot.exists()) {
+        await mediaRoot.create(recursive: true);
+      }
+
+      int imported = 0;
+
+      for (final picked in result.files) {
+        final sourcePath = picked.path;
+        if (sourcePath == null || sourcePath.isEmpty) continue;
+
+        final extension =
+            path.extension(sourcePath).toLowerCase();
+        final isVideo = _isVideoExtension(extension);
+
+        final destination = path.join(
+          mediaRoot.path,
+          '${DateTime.now().microsecondsSinceEpoch}_'
+          '${_safeFileName(picked.name)}',
+        );
+
+        await File(sourcePath).copy(destination);
+
+        _uploadedMedia.add(
+          CapturedMedia(
+            path: destination,
+            mediaType:
+                isVideo ? 'VIDEO_OTHER' : 'PHOTO_OTHER',
+          ),
+        );
+
+        imported++;
+      }
+
+      if (!mounted) return;
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$imported file berhasil diimpor dan disalin '
+            'ke penyimpanan HydroSurveyor.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengimpor media: $e'),
+        ),
+      );
+    }
+  }
+
+  bool _isVideoExtension(String extension) {
+    const extensions = {
+      '.mp4',
+      '.mov',
+      '.m4v',
+      '.avi',
+      '.mkv',
+      '.webm',
+      '.3gp',
+    };
+    return extensions.contains(extension);
+  }
+
+  String _safeFileName(String value) {
+    return value.replaceAll(
+      RegExp(r'[^a-zA-Z0-9._-]'),
+      '_',
+    );
+  }
+
+  List<CapturedMedia> _allMedia() {
+    return [
+      ...(_media?.media ?? const <CapturedMedia>[]),
+      ..._uploadedMedia,
+    ];
+  }
+
+  Future<void> _chooseUploadedMediaType(
+    CapturedMedia item,
+  ) async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        final isVideo = item.mediaType.startsWith('VIDEO');
+
+        final options = isVideo
+            ? const [
+                ['VIDEO_FLOW', 'Video kondisi aliran'],
+                ['VIDEO_FLOAT', 'Video objek terapung'],
+                ['VIDEO_OTHER', 'Video lainnya'],
+              ]
+            : const [
+                ['PHOTO_FAR', 'Foto dari jauh'],
+                ['PHOTO_SCALE', 'Foto dengan orang sebagai skala'],
+                ['PHOTO_FLOW', 'Foto kondisi aliran'],
+                ['PHOTO_OTHER', 'Foto lainnya'],
+              ];
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text(
+                  'Kategori media',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ...options.map(
+                (option) => ListTile(
+                  leading: Icon(
+                    isVideo ? Icons.videocam : Icons.photo,
+                  ),
+                  title: Text(option[1]),
+                  onTap: () => Navigator.pop(context, option[0]),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null || !mounted) return;
+
+    final index = _uploadedMedia.indexOf(item);
+    if (index < 0) return;
+
+    setState(() {
+      _uploadedMedia[index] = CapturedMedia(
+        path: item.path,
+        mediaType: selected,
+      );
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // BASIC PARSING
   // ---------------------------------------------------------------------------
 
@@ -322,7 +487,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
   // ---------------------------------------------------------------------------
 
   String _documentationStatus() {
-    final media = _media?.media ?? [];
+    final media = _allMedia();
 
     if (media.isEmpty) {
       return 'INADEQUATE';
@@ -373,7 +538,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
   }
 
   int _aiEvidenceCount() {
-    return _media?.media.length ?? 0;
+    return _allMedia().length;
   }
 
   String _confidenceLevel() {
@@ -741,8 +906,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
       final surveyId =
           await _db.insertSurvey(values);
 
-      final media =
-          _media?.media ?? [];
+      final media = _allMedia();
 
       if (media.isNotEmpty) {
         for (final item in media) {
@@ -1091,25 +1255,20 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
   // ---------------------------------------------------------------------------
 
   Widget _buildDocumentationCard() {
-    final count =
-        _media?.media.length ?? 0;
+    final allMedia = _allMedia();
+    final count = allMedia.length;
 
     final status =
         _documentationStatus();
 
-    final videoCount =
-        _media?.media
-                .where(
-                  (item) =>
-                      item.mediaType ==
-                          'VIDEO_FLOW' ||
-                      item.mediaType ==
-                          'VIDEO_FLOAT' ||
-                      item.mediaType ==
-                          'VIDEO_OTHER',
-                )
-                .length ??
-            0;
+    final videoCount = allMedia
+        .where(
+          (item) =>
+              item.mediaType == 'VIDEO_FLOW' ||
+              item.mediaType == 'VIDEO_FLOAT' ||
+              item.mediaType == 'VIDEO_OTHER',
+        )
+        .length;
 
     return Card(
       child: Padding(
@@ -1188,22 +1347,60 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
             const SizedBox(height: 12),
 
-            SizedBox(
-              width: double.infinity,
-              child:
-                  OutlinedButton.icon(
-                onPressed:
-                    _openCamera,
-                icon: const Icon(
-                  Icons.camera_alt,
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openCamera,
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text('Kamera'),
+                  ),
                 ),
-                label: Text(
-                  count == 0
-                      ? 'Mulai Dokumentasi'
-                      : 'Tambah Dokumentasi',
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openMediaPicker,
+                    icon: const Icon(Icons.photo_library),
+                    label: const Text('Upload'),
+                  ),
+                ),
+              ],
+            ),
+
+            if (_uploadedMedia.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Media dari perangkat',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              ..._uploadedMedia.map(
+                (item) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    item.mediaType.startsWith('VIDEO')
+                        ? Icons.videocam
+                        : Icons.photo,
+                  ),
+                  title: Text(
+                    path.basename(item.path),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    item.mediaType,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Ubah kategori',
+                    icon: const Icon(Icons.edit, size: 20),
+                    onPressed: () =>
+                        _chooseUploadedMediaType(item),
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),
