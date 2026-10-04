@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -15,23 +16,33 @@ class CapturedMedia {
   });
 
   bool get isPhoto => mediaType.startsWith('PHOTO');
+
   bool get isVideo => mediaType.startsWith('VIDEO');
 }
 
 class CameraCaptureResult {
   final List<String> photoPaths;
+
+  // Kompatibilitas dengan kode lama.
   final String? videoPath;
+
+  // Struktur baru: sampai 3 video.
+  final List<String> videoPaths;
+
   final List<CapturedMedia> media;
 
   const CameraCaptureResult({
     required this.photoPaths,
     this.videoPath,
+    this.videoPaths = const [],
     this.media = const [],
   });
 }
 
 class CameraCaptureScreen extends StatefulWidget {
-  const CameraCaptureScreen({super.key});
+  const CameraCaptureScreen({
+    super.key,
+  });
 
   @override
   State<CameraCaptureScreen> createState() =>
@@ -40,6 +51,9 @@ class CameraCaptureScreen extends StatefulWidget {
 
 class _CameraCaptureScreenState
     extends State<CameraCaptureScreen> {
+  static const int maxVideoCount = 3;
+  static const int maxVideoSeconds = 20;
+
   CameraController? _controller;
 
   bool _initializing = true;
@@ -48,11 +62,16 @@ class _CameraCaptureScreenState
   String? _error;
 
   final List<String> _photoPaths = [];
+  final List<String> _videoPaths = [];
   final List<CapturedMedia> _media = [];
 
   String? _videoPath;
 
   String _selectedType = 'PHOTO_FAR';
+
+  Timer? _recordingTimer;
+
+  int _remainingSeconds = maxVideoSeconds;
 
   static const List<Map<String, String>> _mediaTypes = [
     {
@@ -234,11 +253,12 @@ class _CameraCaptureScreenState
     }
   }
 
-  Future<void> _toggleVideo() async {
+  Future<void> _startVideoRecording() async {
     final controller = _controller;
 
     if (controller == null ||
-        !controller.value.isInitialized) {
+        !controller.value.isInitialized ||
+        _recording) {
       return;
     }
 
@@ -254,69 +274,160 @@ class _CameraCaptureScreenState
       return;
     }
 
+    if (_videoPaths.length >= maxVideoCount) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Maksimal 3 video sudah tercapai.',
+          ),
+        ),
+      );
+      return;
+    }
+
     try {
-      if (!_recording) {
-        await controller.startVideoRecording();
+      await controller.startVideoRecording();
 
-        if (mounted) {
-          setState(() {
-            _recording = true;
-          });
+      if (!mounted) return;
+
+      setState(() {
+        _recording = true;
+        _remainingSeconds = maxVideoSeconds;
+      });
+
+      _startRecordingTimer();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gagal memulai video: $e',
+          ),
+        ),
+      );
+    }
+  }
+
+  void _startRecordingTimer() {
+    _recordingTimer?.cancel();
+
+    _recordingTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (timer) {
+        if (!mounted || !_recording) {
+          timer.cancel();
+          return;
         }
-      } else {
-        final xfile =
-            await controller.stopVideoRecording();
 
-        final directory =
-            await _mediaDirectory();
-
-        final filename =
-            'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
-
-        final target = p.join(
-          directory.path,
-          filename,
-        );
-
-        await File(xfile.path).copy(target);
-
-        final captured = CapturedMedia(
-          path: target,
-          mediaType: _selectedType,
-        );
-
-        if (!mounted) return;
+        if (_remainingSeconds <= 1) {
+          timer.cancel();
+          _stopVideoRecording(
+            automatic: true,
+          );
+          return;
+        }
 
         setState(() {
-          _recording = false;
-          _videoPath = target;
-          _media.add(captured);
+          _remainingSeconds--;
         });
+      },
+    );
+  }
 
-        ScaffoldMessenger.of(context)
-            .showSnackBar(
-          SnackBar(
-            content: Text(
-              '${_labelFor(_selectedType)} tersimpan.',
-            ),
-          ),
-        );
-      }
+  Future<void> _stopVideoRecording({
+    bool automatic = false,
+  }) async {
+    final controller = _controller;
+
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        !_recording) {
+      return;
+    }
+
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+
+    try {
+      final xfile =
+          await controller.stopVideoRecording();
+
+      final directory =
+          await _mediaDirectory();
+
+      final videoNumber =
+          _videoPaths.length + 1;
+
+      final filename =
+          'video_${videoNumber}_${DateTime.now().millisecondsSinceEpoch}.mp4';
+
+      final target = p.join(
+        directory.path,
+        filename,
+      );
+
+      await File(xfile.path).copy(target);
+
+      final captured = CapturedMedia(
+        path: target,
+        mediaType: _selectedType,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _recording = false;
+
+        _videoPaths.add(target);
+
+        // Tetap menyediakan videoPath pertama
+        // untuk kompatibilitas dengan kode lama.
+        _videoPath ??= target;
+
+        _media.add(captured);
+
+        _remainingSeconds =
+            maxVideoSeconds;
+      });
+
+      final message = automatic
+          ? 'Video $videoNumber/3 otomatis berhenti setelah 20 detik.'
+          : 'Video $videoNumber/3 tersimpan.';
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        SnackBar(
+          content: Text(message),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
 
       setState(() {
         _recording = false;
+        _remainingSeconds =
+            maxVideoSeconds;
       });
 
       ScaffoldMessenger.of(context)
           .showSnackBar(
         SnackBar(
           content: Text(
-            'Gagal merekam video: $e',
+            'Gagal menyimpan video: $e',
           ),
         ),
       );
+    }
+  }
+
+  Future<void> _toggleVideo() async {
+    if (_recording) {
+      await _stopVideoRecording();
+    } else {
+      await _startVideoRecording();
     }
   }
 
@@ -374,16 +485,25 @@ class _CameraCaptureScreenState
       context,
       CameraCaptureResult(
         photoPaths:
-            List.unmodifiable(_photoPaths),
+            List.unmodifiable(
+          _photoPaths,
+        ),
         videoPath: _videoPath,
+        videoPaths:
+            List.unmodifiable(
+          _videoPaths,
+        ),
         media:
-            List.unmodifiable(_media),
+            List.unmodifiable(
+          _media,
+        ),
       ),
     );
   }
 
   @override
   void dispose() {
+    _recordingTimer?.cancel();
     _controller?.dispose();
     super.dispose();
   }
@@ -451,8 +571,16 @@ class _CameraCaptureScreenState
                     'Kamera tidak siap.',
                   ),
                 )
-              : CameraPreview(
-                  _controller!,
+              : Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CameraPreview(
+                      _controller!,
+                    ),
+
+                    if (_recording)
+                      _buildRecordingOverlay(),
+                  ],
                 ),
         ),
         _buildControlPanel(),
@@ -460,7 +588,75 @@ class _CameraCaptureScreenState
     );
   }
 
+  Widget _buildRecordingOverlay() {
+    return Positioned(
+      top: 20,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 10,
+          ),
+          decoration:
+              BoxDecoration(
+            color:
+                Colors.black.withOpacity(
+              0.75,
+            ),
+            borderRadius:
+                BorderRadius.circular(
+              30,
+            ),
+          ),
+          child: Row(
+            mainAxisSize:
+                MainAxisSize.min,
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration:
+                    const BoxDecoration(
+                  color: Colors.red,
+                  shape:
+                      BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'REKAM  $_remainingSeconds',
+                style:
+                    const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight:
+                      FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'detik',
+                style:
+                    const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildControlPanel() {
+    final videosFull =
+        _videoPaths.length >=
+            maxVideoCount;
+
     return SafeArea(
       top: false,
       child: Container(
@@ -620,6 +816,60 @@ class _CameraCaptureScreenState
 
             const SizedBox(height: 10),
 
+            if (_selectedType
+                    .startsWith('VIDEO'))
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(
+                  10,
+                ),
+                decoration:
+                    BoxDecoration(
+                  color:
+                      videosFull
+                          ? Colors.grey
+                              .shade100
+                          : Colors.orange
+                              .shade50,
+                  borderRadius:
+                      BorderRadius.circular(
+                    8,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.timer,
+                      color: videosFull
+                          ? Colors.grey
+                          : Colors.orange
+                              .shade800,
+                    ),
+                    const SizedBox(
+                      width: 8,
+                    ),
+                    Expanded(
+                      child: Text(
+                        videosFull
+                            ? '3/3 video sudah direkam.'
+                            : 'Video ${_videoPaths.length + 1}/3 — maksimum 20 detik per video.',
+                        style:
+                            const TextStyle(
+                          fontWeight:
+                              FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            if (_selectedType
+                    .startsWith('VIDEO'))
+              const SizedBox(height: 10),
+
             Row(
               children: [
                 Expanded(
@@ -655,9 +905,12 @@ class _CameraCaptureScreenState
                     ),
                     onPressed:
                         _selectedType
-                                .startsWith(
-                              'VIDEO',
-                            )
+                                    .startsWith(
+                                  'VIDEO',
+                                ) &&
+                                (videosFull
+                                    ? false
+                                    : true)
                             ? _toggleVideo
                             : null,
                     icon: Icon(
@@ -667,8 +920,10 @@ class _CameraCaptureScreenState
                     ),
                     label: Text(
                       _recording
-                          ? 'Stop Video'
-                          : 'Video',
+                          ? 'Stop ($_remainingSeconds)'
+                          : videosFull
+                              ? 'Video 3/3 selesai'
+                              : 'Video ${_videoPaths.length + 1}/3',
                     ),
                   ),
                 ),
@@ -681,7 +936,8 @@ class _CameraCaptureScreenState
               children: [
                 Expanded(
                   child: Text(
-                    '${_media.length} dokumentasi tersimpan',
+                    '${_media.length} dokumentasi | '
+                    '${_videoPaths.length}/3 video',
                     style:
                         const TextStyle(
                       fontSize: 12,
