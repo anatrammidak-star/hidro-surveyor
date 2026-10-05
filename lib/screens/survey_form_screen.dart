@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../services/local_database.dart';
 import 'camera_capture_screen.dart';
+import 'survey_result_screen.dart';
 
 class SurveyFormScreen extends StatefulWidget {
   final int expeditionId;
@@ -940,43 +941,20 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
       if (!mounted) return;
 
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text(
-            'Pengukuran tersimpan',
-          ),
-          content: SingleChildScrollView(
-            child: Text(
-              '$localId\n\n'
-              'Dokumentasi: '
-              '$documentationStatus\n'
-              'Parameter lapangan: '
-              '$manualCount/$_manualMaximum\n'
-              'Precision level: '
-              '$precisionLevel\n'
-              'AI status: '
-              '$_aiStatus\n\n'
-              '${correctedDischarge == null ? 'Debit AI belum dianalisis dan data lapangan belum cukup untuk menghitung debit.' : 'Debit terkoreksi: ${correctedDischarge.toStringAsFixed(3)} m³/s\n'}'
-              '${correctedHead == null ? '' : 'Net head terkoreksi: ${correctedHead.toStringAsFixed(2)} m\n'}'
-              '${correctedPower == null ? '' : 'Daya terkoreksi: ${correctedPower.toStringAsFixed(2)} kW\n'}'
-              '\nData tersimpan di perangkat dengan status PENDING. '
-              'Internet tidak diperlukan untuk menyimpan survei.',
-            ),
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pop(context),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+if (!mounted) return;
 
-      if (mounted) {
-        Navigator.pop(context, true);
-      }
+await Navigator.push(
+  context,
+  MaterialPageRoute<void>(
+    builder: (context) => SurveyResultScreen(
+      surveyId: surveyId,
+    ),
+  ),
+);
+
+if (mounted) {
+  Navigator.pop(context, true);
+}
     } catch (e) {
       if (!mounted) return;
 
