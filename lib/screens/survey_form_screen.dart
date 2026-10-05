@@ -816,47 +816,47 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
             recommendedTurbine,
 
         // AI / VISUAL RANGE
-        'visual_discharge_min':
+        'visual_discharge_min_cms':
             _visualDischargeMin,
-        'visual_discharge_best':
+        'visual_discharge_cms':
             _visualDischargeBest,
-        'visual_discharge_max':
+        'visual_discharge_max_cms':
             _visualDischargeMax,
 
-        'visual_head_min':
+        'visual_head_min_m':
             _visualHeadMin,
-        'visual_head_best':
+        'visual_head_m':
             _visualHeadBest,
-        'visual_head_max':
+        'visual_head_max_m':
             _visualHeadMax,
 
-        'visual_power_min':
+        'visual_power_min_kw':
             _visualPowerMin,
-        'visual_power_best':
+        'visual_power_kw':
             _visualPowerBest,
-        'visual_power_max':
+        'visual_power_max_kw':
             _visualPowerMax,
 
         // FIELD-CORRECTED RANGE
-        'corrected_discharge_min':
+        'corrected_discharge_min_cms':
             correctedDischargeMin,
-        'corrected_discharge_best':
+        'corrected_discharge_cms':
             correctedDischargeBest,
-        'corrected_discharge_max':
+        'corrected_discharge_max_cms':
             correctedDischargeMax,
 
-        'corrected_head_min':
+        'corrected_head_min_m':
             correctedHeadMin,
-        'corrected_head_best':
+        'corrected_head_m':
             correctedHeadBest,
-        'corrected_head_max':
+        'corrected_head_max_m':
             correctedHeadMax,
 
-        'corrected_power_min':
+        'corrected_power_min_kw':
             correctedPowerMin,
-        'corrected_power_best':
+        'corrected_power_kw':
             correctedPowerBest,
-        'corrected_power_max':
+        'corrected_power_max_kw':
             correctedPowerMax,
 
         // CORRECTION FACTORS
