@@ -466,7 +466,7 @@ jobs:
           ls -lh \
             build/app/outputs/flutter-apk/app-release.apk
 
-      # =====================================================
+           # =====================================================
       # Verify APK Signature
       # =====================================================
       - name: Verify APK Signature
@@ -475,12 +475,27 @@ jobs:
           echo "VERIFYING APK SIGNATURE"
           echo "========================================"
 
-          apksigner verify \
+          APKSIGNER=$(find "$ANDROID_HOME" \
+            -type f \
+            -name "apksigner" \
+            | head -n 1)
+
+          if [ -z "$APKSIGNER" ]; then
+            echo "ERROR: apksigner tidak ditemukan."
+            exit 1
+          fi
+
+          echo "Using:"
+          echo "$APKSIGNER"
+
+          "$APKSIGNER" verify \
             --verbose \
             build/app/outputs/flutter-apk/app-release.apk
 
-          echo "APK signature verification OK."
-
+          echo ""
+          echo "========================================"
+          echo "APK SIGNATURE VERIFICATION OK"
+          echo "========================================"
       # =====================================================
       # Upload APK
       # =====================================================
