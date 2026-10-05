@@ -152,7 +152,6 @@ jobs:
           grep -E \
             "compileSdk|targetSdk|minSdk" \
             android/app/build.gradle || true
-
       # =====================================================
       # Configure Permanent Release Signing
       # =====================================================
@@ -170,28 +169,28 @@ jobs:
           # -------------------------------------------------
           # Check secrets
           # -------------------------------------------------
-          if [ -z "$HYDRO_KEYSTORE_BASE64" ]; then
+          test -n "$HYDRO_KEYSTORE_BASE64" || {
             echo "ERROR: HYDRO_KEYSTORE_BASE64 tidak tersedia."
             exit 1
-          fi
+          }
 
-          if [ -z "$HYDRO_KEYSTORE_PASSWORD" ]; then
+          test -n "$HYDRO_KEYSTORE_PASSWORD" || {
             echo "ERROR: HYDRO_KEYSTORE_PASSWORD tidak tersedia."
             exit 1
-          fi
+          }
 
-          if [ -z "$HYDRO_KEY_ALIAS" ]; then
+          test -n "$HYDRO_KEY_ALIAS" || {
             echo "ERROR: HYDRO_KEY_ALIAS tidak tersedia."
             exit 1
-          fi
+          }
 
-          if [ -z "$HYDRO_KEY_PASSWORD" ]; then
+          test -n "$HYDRO_KEY_PASSWORD" || {
             echo "ERROR: HYDRO_KEY_PASSWORD tidak tersedia."
             exit 1
-          fi
+          }
 
           # -------------------------------------------------
-          # Restore keystore
+          # Restore permanent keystore
           # -------------------------------------------------
           echo "$HYDRO_KEYSTORE_BASE64" | \
             base64 --decode > android/app/hydro-release.jks
@@ -221,72 +220,82 @@ jobs:
           path = Path("android/app/build.gradle")
           text = path.read_text()
 
-          # -----------------------------------------------
-          # Add imports / keystore properties
-          # -----------------------------------------------
-          properties_block = '''
-          def keystorePropertiesFile = rootProject.file("key.properties")
+          # ===============================================
+          # 1. Add Properties loading before android {}
+          # ===============================================
+          properties_block = """def keystorePropertiesFile = rootProject.file("key.properties")
           def keystoreProperties = new Properties()
 
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
           }
-          '''
+
+          """
 
           if "keystorePropertiesFile" not in text:
-              text = text.replace(
-                  "android {",
-                  properties_block + "\nandroid {",
-                  1
-              )
+              text = properties_block + text
 
-          # -----------------------------------------------
-          # Add release signing config
-          # -----------------------------------------------
-          signing_config = '''
-              signingConfigs {
-                  release {
-                      keyAlias keystoreProperties['keyAlias']
-                      keyPassword keystoreProperties['keyPassword']
-                      storeFile keystoreProperties['storeFile'] ?
-                          file(keystoreProperties['storeFile']) : null
-                      storePassword keystoreProperties['storePassword']
-                  }
+          # ===============================================
+          # 2. Add signingConfigs inside android {}
+          # ===============================================
+          signing_block = """    signingConfigs {
+              release {
+                  keyAlias keystoreProperties['keyAlias']
+                  keyPassword keystoreProperties['keyPassword']
+                  storeFile keystoreProperties['storeFile'] ?
+                      file(keystoreProperties['storeFile']) : null
+                  storePassword keystoreProperties['storePassword']
               }
-          '''
+          }
+
+          """
 
           if "signingConfigs {" not in text:
               text = text.replace(
-                  "buildTypes {",
-                  signing_config + "\n    buildTypes {",
+                  "android {",
+                  "android {\n" + signing_block,
                   1
               )
 
-          # -----------------------------------------------
-          # Make release use permanent key
-          # -----------------------------------------------
+          # ===============================================
+          # 3. Configure ONLY buildTypes.release
+          # ===============================================
           text = text.replace(
               "signingConfig signingConfigs.debug",
               "signingConfig signingConfigs.release"
           )
 
-          # -----------------------------------------------
-          # If no release signing was found, inject it
-          # -----------------------------------------------
+          # ===============================================
+          # 4. If generated project has no signingConfig,
+          #    add it specifically inside buildTypes.release
+          # ===============================================
           if "signingConfig signingConfigs.release" not in text:
-              text = text.replace(
-                  "release {",
-                  """release {
-                  signingConfig signingConfigs.release""",
-                  1
-              )
+              marker = """buildTypes {
+                  release {"""
+
+              replacement = """buildTypes {
+                  release {
+                      signingConfig signingConfigs.release"""
+
+              if marker in text:
+                  text = text.replace(
+                      marker,
+                      replacement,
+                      1
+                  )
+              else:
+                  raise SystemExit(
+                      "ERROR: buildTypes.release tidak ditemukan."
+                  )
 
           path.write_text(text)
+
+          print("Permanent release signing berhasil dikonfigurasi.")
           PY
 
           echo ""
           echo "========================================"
-          echo "SIGNING CONFIGURATION"
+          echo "CHECK SIGNING CONFIGURATION"
           echo "========================================"
 
           grep -n -A15 -B3 \
@@ -295,13 +304,13 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "RELEASE BUILD TYPE"
+          echo "CHECK RELEASE BUILD TYPE"
           echo "========================================"
 
-          grep -n -A10 \
+          grep -n -A12 \
             "buildTypes" \
             android/app/build.gradle || true
-
+     
       # =====================================================
       # Verify Release Keystore
       # =====================================================
