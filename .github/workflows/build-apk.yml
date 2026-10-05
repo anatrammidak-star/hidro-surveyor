@@ -154,6 +154,174 @@ jobs:
             android/app/build.gradle || true
 
       # =====================================================
+      # Configure Permanent Release Signing
+      # =====================================================
+      - name: Configure Permanent Release Signing
+        env:
+          HYDRO_KEYSTORE_BASE64: ${{ secrets.HYDRO_KEYSTORE_BASE64 }}
+          HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
+          HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
+          HYDRO_KEY_PASSWORD: ${{ secrets.HYDRO_KEY_PASSWORD }}
+        run: |
+          echo "========================================"
+          echo "CONFIGURING PERMANENT RELEASE SIGNING"
+          echo "========================================"
+
+          # -------------------------------------------------
+          # Check secrets
+          # -------------------------------------------------
+          if [ -z "$HYDRO_KEYSTORE_BASE64" ]; then
+            echo "ERROR: HYDRO_KEYSTORE_BASE64 tidak tersedia."
+            exit 1
+          fi
+
+          if [ -z "$HYDRO_KEYSTORE_PASSWORD" ]; then
+            echo "ERROR: HYDRO_KEYSTORE_PASSWORD tidak tersedia."
+            exit 1
+          fi
+
+          if [ -z "$HYDRO_KEY_ALIAS" ]; then
+            echo "ERROR: HYDRO_KEY_ALIAS tidak tersedia."
+            exit 1
+          fi
+
+          if [ -z "$HYDRO_KEY_PASSWORD" ]; then
+            echo "ERROR: HYDRO_KEY_PASSWORD tidak tersedia."
+            exit 1
+          fi
+
+          # -------------------------------------------------
+          # Restore keystore
+          # -------------------------------------------------
+          echo "$HYDRO_KEYSTORE_BASE64" | \
+            base64 --decode > android/app/hydro-release.jks
+
+          test -s android/app/hydro-release.jks
+
+          echo "Release keystore berhasil dipulihkan."
+
+          # -------------------------------------------------
+          # Create key.properties
+          # -------------------------------------------------
+          cat > android/key.properties <<EOF
+          storePassword=$HYDRO_KEYSTORE_PASSWORD
+          keyPassword=$HYDRO_KEY_PASSWORD
+          keyAlias=$HYDRO_KEY_ALIAS
+          storeFile=hydro-release.jks
+          EOF
+
+          echo "key.properties berhasil dibuat."
+
+          # -------------------------------------------------
+          # Configure build.gradle
+          # -------------------------------------------------
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/build.gradle")
+          text = path.read_text()
+
+          # -----------------------------------------------
+          # Add imports / keystore properties
+          # -----------------------------------------------
+          properties_block = '''
+          def keystorePropertiesFile = rootProject.file("key.properties")
+          def keystoreProperties = new Properties()
+
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+          }
+          '''
+
+          if "keystorePropertiesFile" not in text:
+              text = text.replace(
+                  "android {",
+                  properties_block + "\nandroid {",
+                  1
+              )
+
+          # -----------------------------------------------
+          # Add release signing config
+          # -----------------------------------------------
+          signing_config = '''
+              signingConfigs {
+                  release {
+                      keyAlias keystoreProperties['keyAlias']
+                      keyPassword keystoreProperties['keyPassword']
+                      storeFile keystoreProperties['storeFile'] ?
+                          file(keystoreProperties['storeFile']) : null
+                      storePassword keystoreProperties['storePassword']
+                  }
+              }
+          '''
+
+          if "signingConfigs {" not in text:
+              text = text.replace(
+                  "buildTypes {",
+                  signing_config + "\n    buildTypes {",
+                  1
+              )
+
+          # -----------------------------------------------
+          # Make release use permanent key
+          # -----------------------------------------------
+          text = text.replace(
+              "signingConfig signingConfigs.debug",
+              "signingConfig signingConfigs.release"
+          )
+
+          # -----------------------------------------------
+          # If no release signing was found, inject it
+          # -----------------------------------------------
+          if "signingConfig signingConfigs.release" not in text:
+              text = text.replace(
+                  "release {",
+                  """release {
+                  signingConfig signingConfigs.release""",
+                  1
+              )
+
+          path.write_text(text)
+          PY
+
+          echo ""
+          echo "========================================"
+          echo "SIGNING CONFIGURATION"
+          echo "========================================"
+
+          grep -n -A15 -B3 \
+            "signingConfigs" \
+            android/app/build.gradle || true
+
+          echo ""
+          echo "========================================"
+          echo "RELEASE BUILD TYPE"
+          echo "========================================"
+
+          grep -n -A10 \
+            "buildTypes" \
+            android/app/build.gradle || true
+
+      # =====================================================
+      # Verify Release Keystore
+      # =====================================================
+      - name: Verify Release Keystore
+        env:
+          HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
+          HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
+        run: |
+          echo "========================================"
+          echo "VERIFYING RELEASE KEYSTORE"
+          echo "========================================"
+
+          keytool -list \
+            -keystore android/app/hydro-release.jks \
+            -storepass "$HYDRO_KEYSTORE_PASSWORD" \
+            -alias "$HYDRO_KEY_ALIAS"
+
+          echo "Release keystore valid."
+
+      # =====================================================
       # Check Android Resources
       # =====================================================
       - name: Check Android Resources
@@ -243,6 +411,21 @@ jobs:
 
           ls -lh \
             build/app/outputs/flutter-apk/app-release.apk
+
+      # =====================================================
+      # Verify APK Signature
+      # =====================================================
+      - name: Verify APK Signature
+        run: |
+          echo "========================================"
+          echo "VERIFYING APK SIGNATURE"
+          echo "========================================"
+
+          apksigner verify \
+            --verbose \
+            build/app/outputs/flutter-apk/app-release.apk
+
+          echo "APK signature verification OK."
 
       # =====================================================
       # Upload APK
