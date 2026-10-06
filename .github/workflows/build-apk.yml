@@ -102,6 +102,48 @@ jobs:
             -type f | sort
 
       # =====================================================
+      # Configure Application Display Name
+      # =====================================================
+      - name: Configure Application Name
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          if not manifest.exists():
+              raise SystemExit(
+                  "ERROR: AndroidManifest.xml tidak ditemukan."
+              )
+
+          text = manifest.read_text()
+
+          # Ganti nama aplikasi yang tampil di launcher.
+          # Package/application ID TIDAK diubah.
+          text = text.replace(
+              'android:label="hydro_surveyor"',
+              'android:label="SiCA - Survei Cepat Air"'
+          )
+
+          manifest.write_text(text)
+
+          print(
+              "Nama launcher dikonfigurasi: "
+              "SiCA - Survei Cepat Air"
+          )
+          PY
+
+          echo ""
+          echo "========================================"
+          echo "APPLICATION DISPLAY NAME"
+          echo "========================================"
+
+          grep -n "android:label" \
+            android/app/src/main/AndroidManifest.xml || true
+
+      # =====================================================
       # Configure Android SDK
       # =====================================================
       - name: Configure Android SDK
