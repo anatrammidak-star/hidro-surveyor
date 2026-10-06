@@ -494,6 +494,22 @@ jobs:
 
           echo ""
           echo "========================================"
+          echo "APK CERTIFICATE FINGERPRINT"
+          echo "========================================"
+
+          APKSIGNER=$(find "$ANDROID_HOME" \
+            -type f \
+            -name "apksigner" \
+            | head -n 1)
+
+          "$APKSIGNER" verify \
+            --verbose \
+            --print-certs \
+            build/app/outputs/flutter-apk/app-release.apk
+            
+
+          echo ""
+          echo "========================================"
           echo "APK SIGNATURE VERIFICATION OK"
           echo "========================================"
       # =====================================================
