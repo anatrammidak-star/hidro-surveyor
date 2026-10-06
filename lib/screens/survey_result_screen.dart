@@ -5,36 +5,7 @@ import 'package:video_player/video_player.dart';
 
 import '../services/local_database.dart';
 
-class SurveyResultScreen extends StatefulWidget {
-  final int surveyId;
-
-  const SurveyResultScreen({
-    super.key,
-    required this.surveyId,
-  });
-
-  @override
-  State<SurveyResultScreen> createState() =>
-      _SurveyResultScreenState();
-}
-
-class _SurveyResultScreenState
-    extends State<SurveyResultScreen> {
-  final _db = LocalDatabase.instance;
-
-  Map<String, Object?>? _survey;
-  bool _loading = true;
-  String? _error;
-  
-  List<Map<String, Object?>> _media = [];
-  
-  @override
-  void initState() {
-    super.initState();
-    _loadSurvey();
-  }
-
-  class _VideoPlayerScreen extends StatefulWidget {
+class _VideoPlayerScreen extends StatefulWidget {
   final String filePath;
   final String title;
 
@@ -48,22 +19,17 @@ class _SurveyResultScreenState
       _VideoPlayerScreenState();
 }
 
-class _VideoPlayerScreenState
-    extends State<_VideoPlayerScreen> {
+class _VideoPlayerScreenState extends State<_VideoPlayerScreen> {
   late final VideoPlayerController _controller;
-
   bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-
-    _controller =
-        VideoPlayerController.file(
+    _controller = VideoPlayerController.file(
       File(widget.filePath),
     )..initialize().then((_) {
         if (!mounted) return;
-
         setState(() {
           _initialized = true;
         });
@@ -88,15 +54,11 @@ class _VideoPlayerScreenState
       body: Center(
         child: _initialized
             ? Column(
-                mainAxisAlignment:
-                    MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AspectRatio(
-                    aspectRatio:
-                        _controller.value.aspectRatio,
-                    child: VideoPlayer(
-                      _controller,
-                    ),
+                    aspectRatio: _controller.value.aspectRatio,
+                    child: VideoPlayer(_controller),
                   ),
                   const SizedBox(height: 16),
                   IconButton(
@@ -126,9 +88,36 @@ class _VideoPlayerScreenState
     );
   }
 }
-  
 
+class SurveyResultScreen extends StatefulWidget {
+  final int surveyId;
+
+  const SurveyResultScreen({
+    super.key,
+    required this.surveyId,
+  });
+
+  @override
+  State<SurveyResultScreen> createState() =>
+      _SurveyResultScreenState();
+}
+
+class _SurveyResultScreenState
+    extends State<SurveyResultScreen> {
+  final _db = LocalDatabase.instance;
+
+  Map<String, Object?>? _survey;
+  bool _loading = true;
+  String? _error;
   
+  List<Map<String, Object?>> _media = [];
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadSurvey();
+  }
+
   Future<void> _loadSurvey() async {
   try {
     final result =
@@ -866,99 +855,6 @@ class _VideoPlayerScreenState
   );
 }
 
-  class _VideoPlayerScreen extends StatefulWidget {
-  final String filePath;
-  final String title;
-
-  const _VideoPlayerScreen({
-    required this.filePath,
-    required this.title,
-  });
-
-  @override
-  State<_VideoPlayerScreen> createState() =>
-      _VideoPlayerScreenState();
-}
-
-class _VideoPlayerScreenState
-    extends State<_VideoPlayerScreen> {
-  late final VideoPlayerController _controller;
-
-  bool _initialized = false;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _controller =
-        VideoPlayerController.file(
-      File(widget.filePath),
-    )..initialize().then((_) {
-        if (!mounted) return;
-
-        setState(() {
-          _initialized = true;
-        });
-      });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(widget.title),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-      ),
-      body: Center(
-        child: _initialized
-            ? Column(
-                mainAxisAlignment:
-                    MainAxisAlignment.center,
-                children: [
-                  AspectRatio(
-                    aspectRatio:
-                        _controller.value.aspectRatio,
-                    child: VideoPlayer(
-                      _controller,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  IconButton(
-                    onPressed: () {
-                      setState(() {
-                        if (_controller.value.isPlaying) {
-                          _controller.pause();
-                        } else {
-                          _controller.play();
-                        }
-                      });
-                    },
-                    iconSize: 56,
-                    color: Colors.white,
-                    icon: Icon(
-                      _controller.value.isPlaying
-                          ? Icons.pause_circle
-                          : Icons.play_circle,
-                    ),
-                  ),
-                ],
-              )
-            : const CircularProgressIndicator(
-                color: Colors.white,
-              ),
-      ),
-    );
-  }
-}
-  
   Widget _buildMetadataCard() {
     return _sectionCard(
       title: 'Informasi Survei',
