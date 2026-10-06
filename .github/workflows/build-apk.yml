@@ -108,6 +108,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           manifest = Path(
               "android/app/src/main/AndroidManifest.xml"
@@ -120,18 +121,24 @@ jobs:
 
           text = manifest.read_text()
 
-          # Ganti nama aplikasi yang tampil di launcher.
-          # Package/application ID TIDAK diubah.
-          text = text.replace(
-              'android:label="hydro_surveyor"',
-              'android:label="SiCA - Survei Cepat Air"'
+          # Hanya mengubah android:label.
+          # Package/application ID tidak disentuh.
+          text, count = re.subn(
+              r'android:label="[^"]*"',
+              'android:label="SiCA - Survei Cepat Air"',
+              text,
+              count=1
           )
+
+          if count == 0:
+              raise SystemExit(
+                  "ERROR: android:label tidak ditemukan."
+              )
 
           manifest.write_text(text)
 
           print(
-              "Nama launcher dikonfigurasi: "
-              "SiCA - Survei Cepat Air"
+              "Nama launcher: SiCA - Survei Cepat Air"
           )
           PY
 
