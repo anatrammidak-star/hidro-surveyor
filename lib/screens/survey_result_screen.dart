@@ -25,33 +25,134 @@ class _SurveyResultScreenState
   Map<String, Object?>? _survey;
   bool _loading = true;
   String? _error;
-
+  
+  List<Map<String, Object?>> _media = [];
+  
   @override
   void initState() {
     super.initState();
     _loadSurvey();
   }
 
-  Future<void> _loadSurvey() async {
-    try {
-      final result =
-          await _db.getSurvey(widget.surveyId);
+  class _VideoPlayerScreen extends StatefulWidget {
+  final String filePath;
+  final String title;
 
-      if (!mounted) return;
+  const _VideoPlayerScreen({
+    required this.filePath,
+    required this.title,
+  });
 
-      setState(() {
-        _survey = result;
-        _loading = false;
+  @override
+  State<_VideoPlayerScreen> createState() =>
+      _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState
+    extends State<_VideoPlayerScreen> {
+  late final VideoPlayerController _controller;
+
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller =
+        VideoPlayerController.file(
+      File(widget.filePath),
+    )..initialize().then((_) {
+        if (!mounted) return;
+
+        setState(() {
+          _initialized = true;
+        });
       });
-    } catch (e) {
-      if (!mounted) return;
-
-      setState(() {
-        _error = e.toString();
-        _loading = false;
-      });
-    }
   }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(widget.title),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: _initialized
+            ? Column(
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+                children: [
+                  AspectRatio(
+                    aspectRatio:
+                        _controller.value.aspectRatio,
+                    child: VideoPlayer(
+                      _controller,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        if (_controller.value.isPlaying) {
+                          _controller.pause();
+                        } else {
+                          _controller.play();
+                        }
+                      });
+                    },
+                    iconSize: 56,
+                    color: Colors.white,
+                    icon: Icon(
+                      _controller.value.isPlaying
+                          ? Icons.pause_circle
+                          : Icons.play_circle,
+                    ),
+                  ),
+                ],
+              )
+            : const CircularProgressIndicator(
+                color: Colors.white,
+              ),
+      ),
+    );
+  }
+}
+  
+
+  
+  Future<void> _loadSurvey() async {
+  try {
+    final result =
+        await _db.getSurvey(widget.surveyId);
+
+    final media =
+        await _db.getMediaForSurvey(widget.surveyId);
+
+    if (!mounted) return;
+
+    setState(() {
+      _survey = result;
+      _media = media;
+      _loading = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _error = e.toString();
+      _loading = false;
+    });
+  }
+}
 
   String _text(String key) {
     final value = _survey?[key];
@@ -588,32 +689,276 @@ class _SurveyResultScreenState
   }
 
   Widget _buildDocumentationCard() {
-    return _sectionCard(
-      title: 'Dokumentasi',
-      icon: Icons.photo_library,
-      children: [
-        _infoRow(
-          'Status',
-          _text('documentation_status'),
-        ),
-        _infoRow(
-          'Jumlah evidence',
-          '${_text('ai_evidence_count')} file',
-        ),
-        const SizedBox(height: 8),
+  return _sectionCard(
+    title: 'Dokumentasi',
+    icon: Icons.photo_library,
+    children: [
+      _infoRow(
+        'Status',
+        _text('documentation_status'),
+      ),
+      _infoRow(
+        'Jumlah evidence',
+        '${_media.length} file',
+      ),
+      const SizedBox(height: 12),
+
+      if (_media.isEmpty)
         const Text(
-          'Foto/video tersimpan secara lokal '
-          'dan akan menjadi bagian dari proses '
-          'sinkronisasi.',
+          'Belum ada file dokumentasi.',
           style: TextStyle(
-            fontSize: 12,
             color: Colors.grey,
           ),
+        )
+      else
+        ..._media.asMap().entries.map(
+          (entry) {
+            final index = entry.key + 1;
+            final media = entry.value;
+
+            return _buildMediaTile(
+              media,
+              index,
+            );
+          },
         ),
-      ],
-    );
+
+      const SizedBox(height: 8),
+
+      const Text(
+        'Foto/video tersimpan secara lokal '
+        'dan dapat dibuka tanpa koneksi internet.',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.grey,
+        ),
+      ),
+    ],
+  );
+}
+
+  Widget _buildMediaTile(
+  Map<String, Object?> media,
+  int index,
+) {
+  final mediaType =
+      '${media['media_type'] ?? ''}';
+
+  final localPath =
+      '${media['local_path'] ?? ''}';
+
+  final isVideo =
+      mediaType.toUpperCase().contains('VIDEO') ||
+      localPath.toLowerCase().endsWith('.mp4') ||
+      localPath.toLowerCase().endsWith('.mov') ||
+      localPath.toLowerCase().endsWith('.avi');
+
+  final fileExists =
+      localPath.isNotEmpty &&
+      File(localPath).existsSync();
+
+  final title = isVideo
+      ? 'Video $index'
+      : 'Foto $index';
+
+  return Card(
+    margin: const EdgeInsets.only(
+      bottom: 8,
+    ),
+    child: ListTile(
+      leading: CircleAvatar(
+        backgroundColor:
+            Colors.teal.shade50,
+        child: Icon(
+          isVideo
+              ? Icons.videocam
+              : Icons.photo,
+          color: Colors.teal.shade700,
+        ),
+      ),
+      title: Text(title),
+      subtitle: Text(
+        fileExists
+            ? 'Tersimpan di perangkat'
+            : 'File tidak ditemukan',
+      ),
+      trailing: Icon(
+        fileExists
+            ? Icons.play_circle_outline
+            : Icons.error_outline,
+        color: fileExists
+            ? Colors.teal
+            : Colors.red,
+      ),
+      enabled: fileExists,
+      onTap: fileExists
+          ? () {
+              if (isVideo) {
+                _openVideo(
+                  localPath,
+                  title,
+                );
+              } else {
+                _openImage(
+                  localPath,
+                  title,
+                );
+              }
+            }
+          : null,
+    ),
+  );
+}
+
+  void _openImage(
+  String filePath,
+  String title,
+) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          title: Text(title),
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Image.file(
+              File(filePath),
+              fit: BoxFit.contain,
+              errorBuilder: (
+                context,
+                error,
+                stackTrace,
+              ) {
+                return const Text(
+                  'Foto tidak dapat dibuka.',
+                  style: TextStyle(
+                    color: Colors.white,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+  Future<void> _openVideo(
+  String filePath,
+  String title,
+) async {
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _VideoPlayerScreen(
+        filePath: filePath,
+        title: title,
+      ),
+    ),
+  );
+}
+
+  class _VideoPlayerScreen extends StatefulWidget {
+  final String filePath;
+  final String title;
+
+  const _VideoPlayerScreen({
+    required this.filePath,
+    required this.title,
+  });
+
+  @override
+  State<_VideoPlayerScreen> createState() =>
+      _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState
+    extends State<_VideoPlayerScreen> {
+  late final VideoPlayerController _controller;
+
+  bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller =
+        VideoPlayerController.file(
+      File(widget.filePath),
+    )..initialize().then((_) {
+        if (!mounted) return;
+
+        setState(() {
+          _initialized = true;
+        });
+      });
   }
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(widget.title),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: _initialized
+            ? Column(
+                mainAxisAlignment:
+                    MainAxisAlignment.center,
+                children: [
+                  AspectRatio(
+                    aspectRatio:
+                        _controller.value.aspectRatio,
+                    child: VideoPlayer(
+                      _controller,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        if (_controller.value.isPlaying) {
+                          _controller.pause();
+                        } else {
+                          _controller.play();
+                        }
+                      });
+                    },
+                    iconSize: 56,
+                    color: Colors.white,
+                    icon: Icon(
+                      _controller.value.isPlaying
+                          ? Icons.pause_circle
+                          : Icons.play_circle,
+                    ),
+                  ),
+                ],
+              )
+            : const CircularProgressIndicator(
+                color: Colors.white,
+              ),
+      ),
+    );
+  }
+}
+  
   Widget _buildMetadataCard() {
     return _sectionCard(
       title: 'Informasi Survei',
