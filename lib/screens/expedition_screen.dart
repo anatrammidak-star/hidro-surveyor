@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 
 import '../services/local_database.dart';
@@ -134,16 +135,24 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('HydroSurveyor'),
+        title: const Text('SiCA – Survei Cepat Air'),
         backgroundColor: Colors.teal.shade800,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            tooltip: 'Muat ulang',
             onPressed: _load,
             icon: const Icon(Icons.refresh),
           ),
-        ],
-      ),
+          IconButton(
+            tooltip: 'Tutup aplikasi',
+            onPressed: () {
+              SystemNavigator.pop();
+            },
+            icon: const Icon(Icons.close),
+        ),
+    ],
+),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
