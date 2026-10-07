@@ -542,9 +542,122 @@ jobs:
       # =====================================================
       - name: Build Release APK
         run: |
+          set -e
+
+          echo "========================================"
+          echo "BUILDING RELEASE APK"
+          echo "========================================"
+
           flutter build apk \
             --release \
             --no-tree-shake-icons
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          test -f "$APK"
+
+          echo ""
+          echo "========================================"
+          echo "APK BUILD SUCCESSFUL"
+          echo "========================================"
+
+          ls -lh "$APK"
+
+          # =================================================
+          # Locate Android SDK tools
+          # =================================================
+
+          APKSIGNER=$(find "$ANDROID_HOME" \
+            -type f \
+            -name "apksigner" \
+            | head -n 1)
+
+          ZIPALIGN=$(find "$ANDROID_HOME" \
+            -type f \
+            -name "zipalign" \
+            | head -n 1)
+
+          if [ -z "$APKSIGNER" ]; then
+            echo "ERROR: apksigner tidak ditemukan."
+            exit 1
+          fi
+
+          if [ -z "$ZIPALIGN" ]; then
+            echo "ERROR: zipalign tidak ditemukan."
+            exit 1
+          fi
+
+          echo ""
+          echo "APKSIGNER:"
+          echo "$APKSIGNER"
+
+          echo ""
+          echo "ZIPALIGN:"
+          echo "$ZIPALIGN"
+
+          # =================================================
+          # Align APK before signing
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "ALIGNING APK"
+          echo "========================================"
+
+          mv "$APK" "${APK}.unsigned"
+
+          "$ZIPALIGN" \
+            -f \
+            4 \
+            "${APK}.unsigned" \
+            "$APK"
+
+          rm -f "${APK}.unsigned"
+
+          # =================================================
+          # Remove any previous APK signature
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "PREPARING APK FOR RELEASE SIGNING"
+          echo "========================================"
+
+          rm -rf /tmp/hydro_apk_signing
+          mkdir -p /tmp/hydro_apk_signing
+
+          cp "$APK" /tmp/hydro_apk_signing/app-unsigned.apk
+
+          # =================================================
+          # Sign APK using permanent release keystore
+          # =================================================
+
+          echo ""
+          echo "========================================"
+          echo "SIGNING APK WITH PERMANENT RELEASE KEY"
+          echo "========================================"
+
+          "$APKSIGNER" sign \
+            --ks android/app/hydro-release.jks \
+            --ks-key-alias "$HYDRO_KEY_ALIAS" \
+            --ks-pass env:HYDRO_KEYSTORE_PASSWORD \
+            --key-pass env:HYDRO_KEY_PASSWORD \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$APK" \
+            /tmp/hydro_apk_signing/app-unsigned.apk
+
+          echo ""
+          echo "========================================"
+          echo "RELEASE APK SIGNING COMPLETE"
+          echo "========================================"
+
+          ls -lh "$APK"
+        env:
+          HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
+          HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
+          HYDRO_KEY_PASSWORD: ${{ secrets.HYDRO_KEY_PASSWORD }}
 
       # =====================================================
       # Verify APK
