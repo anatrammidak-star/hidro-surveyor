@@ -204,17 +204,24 @@ jobs:
       # =====================================================
       # Configure Permanent Release Signing
       # =====================================================
+      
       - name: Configure Permanent Release Signing
         env:
           HYDRO_KEYSTORE_BASE64: ${{ secrets.HYDRO_KEYSTORE_BASE64 }}
           HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
           HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
           HYDRO_KEY_PASSWORD: ${{ secrets.HYDRO_KEY_PASSWORD }}
+
         run: |
+          set -e
+
           echo "========================================"
           echo "CONFIGURING PERMANENT RELEASE SIGNING"
           echo "========================================"
 
+          # -------------------------------------------------
+          # Check GitHub Secrets
+          # -------------------------------------------------
           test -n "$HYDRO_KEYSTORE_BASE64" || {
             echo "ERROR: HYDRO_KEYSTORE_BASE64 tidak tersedia."
             exit 1
@@ -236,7 +243,7 @@ jobs:
           }
 
           # -------------------------------------------------
-          # Restore keystore
+          # Restore permanent release keystore
           # -------------------------------------------------
           echo "$HYDRO_KEYSTORE_BASE64" | \
             base64 --decode > android/app/hydro-release.jks
@@ -258,8 +265,7 @@ jobs:
           echo "key.properties berhasil dibuat."
 
           # -------------------------------------------------
-          # Modify build.gradle WITHOUT touching the
-          # plugins {} position
+          # Force release signing configuration
           # -------------------------------------------------
           python3 - <<'PY'
           from pathlib import Path
@@ -269,10 +275,8 @@ jobs:
           text = path.read_text()
 
           # -------------------------------------------------
-          # Insert keystore properties AFTER plugins {}
-          # and before android {}
+          # Load keystore properties
           # -------------------------------------------------
-
           properties_block = """
           def keystorePropertiesFile = rootProject.file("key.properties")
           def keystoreProperties = new Properties()
@@ -284,8 +288,6 @@ jobs:
           """
 
           if "keystorePropertiesFile" not in text:
-
-              # Cari akhir blok plugins { ... }
               match = re.search(
                   r'plugins\s*\{.*?\n\}',
                   text,
@@ -297,113 +299,157 @@ jobs:
                       "ERROR: plugins {} block tidak ditemukan."
                   )
 
-              insert_position = match.end()
-
               text = (
-                  text[:insert_position]
+                  text[:match.end()]
                   + "\n"
                   + properties_block
-                  + text[insert_position:]
+                  + text[match.end():]
               )
 
           # -------------------------------------------------
-          # Add signingConfigs inside android {}
+          # Remove any existing signingConfigs block
+          # so we can create a known release configuration.
           # -------------------------------------------------
+          text = re.sub(
+              r'\n\s*signingConfigs\s*\{.*?\n\s*\}\s*\n',
+              '\n',
+              text,
+              count=1,
+              flags=re.DOTALL
+          )
 
+          # -------------------------------------------------
+          # Insert our release signing configuration
+          # directly inside android {}
+          # -------------------------------------------------
           signing_block = """
               signingConfigs {
                   release {
                       keyAlias keystoreProperties['keyAlias']
                       keyPassword keystoreProperties['keyPassword']
-                      storeFile keystoreProperties['storeFile'] ?
-                          file(keystoreProperties['storeFile']) : null
+                      storeFile file(keystoreProperties['storeFile'])
                       storePassword keystoreProperties['storePassword']
                   }
               }
 
           """
 
-          if "signingConfigs {" not in text:
+          android_match = re.search(
+              r'android\s*\{',
+              text
+          )
 
-              android_match = re.search(
-                  r'android\s*\{',
-                  text
+          if not android_match:
+              raise SystemExit(
+                  "ERROR: android {} block tidak ditemukan."
               )
 
-              if not android_match:
-                  raise SystemExit(
-                      "ERROR: android {} block tidak ditemukan."
-                  )
-
-              insert_position = android_match.end()
-
-              text = (
-                  text[:insert_position]
-                  + "\n"
-                  + signing_block
-                  + text[insert_position:]
-              )
+          text = (
+              text[:android_match.end()]
+              + "\n"
+              + signing_block
+              + text[android_match.end():]
+          )
 
           # -------------------------------------------------
-          # Replace debug signing with release signing
+          # Force release build type to use release keystore
           # -------------------------------------------------
-
           text = text.replace(
               "signingConfig signingConfigs.debug",
               "signingConfig signingConfigs.release"
           )
 
-          # -------------------------------------------------
-          # If generated build.gradle has no signingConfig,
-          # add it ONLY inside buildTypes release.
-          # -------------------------------------------------
+          release_match = re.search(
+              r'buildTypes\s*\{\s*release\s*\{',
+              text,
+              re.DOTALL
+          )
 
-          if "signingConfig signingConfigs.release" not in text:
-
-              pattern = (
-                  r'(buildTypes\s*\{\s*'
-                  r'release\s*\{)'
+          if not release_match:
+              raise SystemExit(
+                  "ERROR: buildTypes { release { } tidak ditemukan."
               )
 
-              replacement = (
-                  r'\1\n'
-                  r'        signingConfig signingConfigs.release'
+          # Remove any signingConfig inside release block
+          start = release_match.end()
+
+          remaining = text[start:]
+
+          next_build_type = re.search(
+              r'\n\s*\}',
+              remaining
+          )
+
+          if not next_build_type:
+              raise SystemExit(
+                  "ERROR: struktur release buildType tidak dapat dibaca."
               )
 
-              text, count = re.subn(
-                  pattern,
-                  replacement,
-                  text,
-                  count=1
-              )
+          release_body = remaining[:next_build_type.start()]
 
-              if count == 0:
-                  raise SystemExit(
-                      "ERROR: buildTypes { release { } tidak ditemukan."
-                  )
+          release_body = re.sub(
+              r'\n\s*signingConfig\s+signingConfigs\.[A-Za-z0-9_]+',
+              '',
+              release_body
+          )
+
+          release_body = (
+              "\n"
+              "        signingConfig signingConfigs.release"
+              + release_body
+          )
+
+          text = (
+              text[:start]
+              + release_body
+              + remaining[next_build_type.start():]
+          )
 
           path.write_text(text)
 
-          print("Permanent release signing berhasil dikonfigurasi.")
+          print("")
+          print("========================================")
+          print("FINAL ANDROID SIGNING CONFIGURATION")
+          print("========================================")
+          print("Release signing dipaksa menggunakan:")
+          print("signingConfigs.release")
+          print("========================================")
           PY
 
+          # -------------------------------------------------
+          # Show final signing configuration
+          # -------------------------------------------------
           echo ""
           echo "========================================"
-          echo "SIGNING CONFIGURATION"
+          echo "CHECKING build.gradle"
           echo "========================================"
 
-          grep -n -A15 -B3 \
+          grep -n -A12 -B3 \
             "signingConfigs" \
             android/app/build.gradle || true
 
           echo ""
-          echo "========================================"
-          echo "BUILD TYPES"
-          echo "========================================"
-
-          grep -n -A12 \
+          grep -n -A15 \
             "buildTypes" \
             android/app/build.gradle || true
+
+          echo ""
+          echo "========================================"
+          echo "VERIFYING RELEASE KEYSTORE"
+          echo "========================================"
+
+          keytool \
+            -list \
+            -v \
+            -keystore android/app/hydro-release.jks \
+            -storepass "$HYDRO_KEYSTORE_PASSWORD" \
+            | grep -E \
+              "Alias name:|Entry type:|Owner:|SHA256:"
+
+          echo ""
+          echo "========================================"
+          echo "RELEASE SIGNING CONFIGURATION READY"
+          echo "========================================" 
      
       # =====================================================
       # Verify Release Keystore
