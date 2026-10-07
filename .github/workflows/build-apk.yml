@@ -516,9 +516,9 @@ jobs:
             build/app/outputs/flutter-apk/app-release.apk
 
            # =====================================================
-      # Verify APK Signature
+      # Verify APK Signature and Identity
       # =====================================================
-      - name: Verify APK Signature
+      - name: Verify APK Signature and Identity
         run: |
           echo "========================================"
           echo "VERIFYING APK SIGNATURE"
@@ -543,24 +543,38 @@ jobs:
 
           echo ""
           echo "========================================"
-          echo "APK CERTIFICATE FINGERPRINT"
+          echo "APK CERTIFICATE INFORMATION"
           echo "========================================"
-
-          APKSIGNER=$(find "$ANDROID_HOME" \
-            -type f \
-            -name "apksigner" \
-            | head -n 1)
 
           "$APKSIGNER" verify \
             --verbose \
             --print-certs \
             build/app/outputs/flutter-apk/app-release.apk
-            
 
           echo ""
           echo "========================================"
-          echo "APK SIGNATURE VERIFICATION OK"
+          echo "APK PACKAGE AND APPLICATION NAME"
           echo "========================================"
+
+          AAPT=$(find "$ANDROID_HOME" \
+            -type f \
+            -name "aapt" \
+            | head -n 1)
+
+          if [ -z "$AAPT" ]; then
+            echo "ERROR: aapt tidak ditemukan."
+            exit 1
+          fi
+
+          "$AAPT" dump badging \
+            build/app/outputs/flutter-apk/app-release.apk \
+            | grep -E "package: name=|application-label="
+
+          echo ""
+          echo "========================================"
+          echo "APK SIGNATURE AND IDENTITY CHECK OK"
+          echo "========================================"
+      
       # =====================================================
       # Upload APK
       # =====================================================
