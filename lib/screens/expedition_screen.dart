@@ -827,82 +827,195 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     );
   }
 
-  Widget _buildSurveyCard(
-    Map<String, Object?> survey,
-  ) {
-    final surveyId = survey['id'];
+    Widget _buildExpeditionHeader() {
+    double totalDischarge = 0;
+    double totalPower = 0;
+    int powerCount = 0;
 
-    final power = survey['power_output_kw'];
+    for (final survey in _surveys) {
+      final discharge = survey['discharge_cms'];
+      final power = survey['power_output_kw'];
 
-    final surveyName =
-        '${survey['nama_sungai'] ?? 'Sungai tidak diketahui'}';
+      if (discharge is num) {
+        totalDischarge += discharge.toDouble();
+      } else if (discharge != null) {
+        totalDischarge +=
+            double.tryParse(discharge.toString()) ?? 0;
+      }
 
-    final localId =
-        '${survey['local_id'] ?? '-'}';
+      if (power is num) {
+        totalPower += power.toDouble();
+        powerCount++;
+      } else if (power != null) {
+        final parsedPower =
+            double.tryParse(power.toString());
 
-    final syncStatus =
-        '${survey['sync_status'] ?? 'PENDING'}';
+        if (parsedPower != null) {
+          totalPower += parsedPower;
+          powerCount++;
+        }
+      }
+    }
+
+    final dateStart =
+        '${_expedition?['date_start'] ?? '-'}';
+
+    final dateEnd =
+        _expedition?['date_end'];
+
+    final period = dateEnd == null ||
+            dateEnd.toString().trim().isEmpty
+        ? dateStart
+        : '$dateStart s/d ${dateEnd.toString()}';
 
     return Card(
-      margin: const EdgeInsets.only(
-        bottom: 8,
-      ),
-      child: ListTile(
-        contentPadding:
-            const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 6,
-        ),
-        leading: CircleAvatar(
-          backgroundColor:
-              Colors.teal.shade50,
-          child: Icon(
-            Icons.water_drop,
-            color: Colors.teal.shade700,
-          ),
-        ),
-        title: Text(
-          surveyName,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(
-            top: 4,
-          ),
-          child: Column(
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$localId • '
-                '${_formatTime(survey['waktu_survey'])}',
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Debit: '
-                '${_formatNumber(survey['discharge_cms'])} m³/s',
-              ),
-              if (power != null)
-                Text(
-                  'Potensi: '
-                  '${_formatNumber(power, decimals: 2)} kW',
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor:
+                      Colors.teal.shade50,
+                  child: Icon(
+                    Icons.forest,
+                    color: Colors.teal.shade700,
+                  ),
                 ),
-            ],
-          ),
-        ),
-        isThreeLine: true,
-        trailing: _statusIcon(syncStatus),
-        onTap: surveyId == null
-            ? null
-            : () => _openSurvey(
-                  surveyId as int,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '${_expedition?['name'] ?? 'Ekspedisi'}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            Text(
+              'ID: ${_expedition?['local_id'] ?? '-'}',
+            ),
+            const SizedBox(height: 4),
+
+            Text(
+              'Tim: ${_expedition?['team'] ?? '-'}',
+            ),
+            const SizedBox(height: 4),
+
+            Text(
+              'Lokasi: ${_expedition?['location'] ?? '-'}',
+            ),
+            const SizedBox(height: 4),
+
+            Text(
+              'Periode: $period',
+            ),
+
+            const Divider(height: 24),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _summaryBox(
+                    icon: Icons.location_on_outlined,
+                    label: 'Titik',
+                    value: '${_surveys.length}',
+                    unit: 'survei',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _summaryBox(
+                    icon: Icons.water_drop_outlined,
+                    label: 'Total Debit',
+                    value: totalDischarge
+                        .toStringAsFixed(2),
+                    unit: 'm³/s',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _summaryBox(
+                    icon: Icons.bolt_outlined,
+                    label: 'Total Daya',
+                    value: powerCount == 0
+                        ? '-'
+                        : totalPower
+                            .toStringAsFixed(2),
+                    unit: 'kW',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
+  Widget _summaryBox({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String unit,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 12,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.teal.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.teal.shade100,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            size: 22,
+            color: Colors.teal.shade700,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            unit,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _statusIcon(String status) {
     switch (status) {
       case 'SYNCED':
