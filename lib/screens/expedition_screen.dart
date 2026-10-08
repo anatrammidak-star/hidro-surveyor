@@ -13,12 +13,13 @@ class ExpeditionScreen extends StatefulWidget {
 }
 
 class _ExpeditionScreenState extends State<ExpeditionScreen> {
-  final _db = LocalDatabase.instance;
+  final LocalDatabase _db = LocalDatabase.instance;
 
   List<Map<String, Object?>> _expeditions = [];
-  Map<int, int> _surveyCounts = {};
-  int _pending = 0;
-  int _surveys = 0;
+  final Map<int, int> _surveyCounts = {};
+
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -26,114 +27,85 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
     _load();
   }
 
-    Future<void> _load() async {
-    final expeditions = await _db.getExpeditions();
-    final pending = await _db.countPending();
-    final surveys = await _db.countSurveys();
+  Future<void> _load() async {
+    try {
+      final expeditions = await _db.getExpeditions();
 
-    final surveyCounts = <int, int>{};
+      final counts = <int, int>{};
 
-    for (final expedition in expeditions) {
-      final id = expedition['id'];
+      for (final expedition in expeditions) {
+        final id = expedition['id'];
 
-      if (id is int) {
-        surveyCounts[id] =
-            await _db.countSurveysForExpedition(id);
+        if (id is int) {
+          counts[id] =
+              await _db.countSurveysForExpedition(id);
+        }
       }
+
+      if (!mounted) return;
+
+      setState(() {
+        _expeditions = expeditions;
+        _surveyCounts
+          ..clear()
+          ..addAll(counts);
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
     }
-
-    if (!mounted) return;
-
-    setState(() {
-      _expeditions = expeditions;
-      _surveyCounts = surveyCounts;
-      _pending = pending;
-      _surveys = surveys;
-    });
   }
 
-  Future<void> _newExpedition() async {
-    final nameCtrl = TextEditingController();
-    final teamCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-
-    final result = await showDialog<bool>(
+  Future<void> _createExpedition() async {
+    final result = await showDialog<_ExpeditionFormData>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Ekspedisi Baru'),
-        content: SingleChildScrollView(
-          child: Column(
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nama kegiatan *',
-                ),
-              ),
-              TextField(
-                controller: teamCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Tim survei *',
-                ),
-              ),
-              TextField(
-                controller: locationCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Lokasi umum / DAS',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (nameCtrl.text.trim().isEmpty ||
-                  teamCtrl.text.trim().isEmpty) {
-                return;
-              }
-
-              final id =
-                  'EKS-${DateTime.now().millisecondsSinceEpoch}';
-
-              await _db.createExpedition(
-                localId: id,
-                name: nameCtrl.text.trim(),
-                dateStart: DateTime.now(),
-                team: teamCtrl.text.trim(),
-                location: locationCtrl.text.trim(),
-              );
-
-              if (context.mounted) {
-                Navigator.pop(context, true);
-              }
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
+      builder: (_) => const _CreateExpeditionDialog(),
     );
 
-    nameCtrl.dispose();
-    teamCtrl.dispose();
-    locationCtrl.dispose();
+    if (result == null) return;
 
-    if (result == true) {
-      _load();
+    try {
+      final localId =
+          'EXP-${DateTime.now().millisecondsSinceEpoch}';
+
+      await _db.createExpedition(
+        localId: localId,
+        name: result.name,
+        dateStart: result.dateStart,
+        dateEnd: result.dateEnd,
+        team: result.team,
+        location: result.location,
+        notes: result.notes,
+      );
+
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gagal membuat ekspedisi: $e',
+          ),
+        ),
+      );
     }
   }
 
   Future<void> _openExpedition(
     Map<String, Object?> expedition,
   ) async {
-    final id = expedition['id'] as int;
+    final id = expedition['id'];
 
-    await Navigator.push(
-      context,
+    if (id is! int) return;
+
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SurveyListScreen(
           expeditionId: id,
@@ -141,168 +113,1296 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
       ),
     );
 
-    _load();
+    await _load();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('SiCA – Survei Cepat Air'),
-        backgroundColor: Colors.teal.shade800,
-        foregroundColor: Colors.white,
+        title: const Text(
+          'SiCA - Survei Cepat Air',
+        ),
         actions: [
           IconButton(
-            tooltip: 'Muat ulang',
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'Tutup aplikasi',
+            tooltip: 'Keluar',
+            icon: const Icon(
+              Icons.exit_to_app,
+            ),
             onPressed: () {
               SystemNavigator.pop();
             },
-            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createExpedition,
+        icon: const Icon(
+          Icons.add,
         ),
-    ],
-),
+        label: const Text(
+          'Ekspedisi Baru',
+        ),
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _stat(
-                        'Pengukuran',
-                        '$_surveys',
-                        Icons.water,
-                      ),
-                    ),
-                    Expanded(
-                      child: _stat(
-                        'Pending',
-                        '$_pending',
-                        Icons.cloud_upload_outlined,
-                      ),
-                    ),
-                    Expanded(
-                      child: _stat(
-                        'Ekspedisi',
-                        '${_expeditions.length}',
-                        Icons.forest,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              color: Colors.amber.shade50,
-              child: const ListTile(
-                leading: Icon(Icons.offline_bolt),
-                title: Text('Offline-first aktif'),
-                subtitle: Text(
-                  'Data pengukuran disimpan di perangkat terlebih dahulu. '
-                  'Sinkronisasi server akan ditambahkan pada tahap berikutnya.',
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Ekspedisi',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: _newExpedition,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Baru'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_expeditions.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Belum ada ekspedisi. Buat ekspedisi untuk mulai '
-                    'mengumpulkan beberapa titik pengukuran secara terpisah.',
-                  ),
-                ),
-              )
-            else
-              ..._expeditions.map(
-                (e) {
-                  final expeditionId = e['id'];
-                  final surveyCount = expeditionId is int
-                      ? (_surveyCounts[expeditionId] ?? 0)
-                      : 0;
+        child: _buildBody(),
+      ),
+    );
+  }
 
-                  return Card(
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.forest),
-                      ),
-                      title: Text('${e['name']}'),
-                      subtitle: Text(
-                        '${e['team']}\n'
-                        '${e['location'] ?? '-'}\n'
-                        '$surveyCount survei',
-                      ),
-                      isThreeLine: true,
-                      trailing: const Icon(
-                        Icons.chevron_right,
-                      ),
-                      onTap: () => _openExpedition(e),
-                    ),
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_error != null) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        children: [
+          const SizedBox(height: 80),
+          Icon(
+            Icons.error_outline,
+            size: 56,
+            color: Colors.red.shade400,
+          ),
+          const SizedBox(height: 16),
+          const Center(
+            child: Text(
+              'Gagal memuat data ekspedisi',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          Center(
+            child: FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(
+                Icons.refresh,
+              ),
+              label: const Text(
+                'Coba Lagi',
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_expeditions.isEmpty) {
+      return _buildEmptyState();
+    }
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        12,
+        12,
+        12,
+        100,
+      ),
+      children: [
+        _buildOverviewCard(),
+        const SizedBox(height: 12),
+        ..._expeditions.map(
+          _buildExpeditionCard,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverviewCard() {
+    int totalSurveys = 0;
+    int pendingSurveys = 0;
+
+    for (final expedition in _expeditions) {
+      final id = expedition['id'];
+
+      if (id is int) {
+        totalSurveys +=
+            _surveyCounts[id] ?? 0;
+      }
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Expanded(
+              child: _miniMetric(
+                icon: Icons.explore,
+                label: 'Ekspedisi',
+                value: '${_expeditions.length}',
+              ),
+            ),
+            Expanded(
+              child: _miniMetric(
+                icon: Icons.water_drop,
+                label: 'Titik Survei',
+                value: '$totalSurveys',
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<int>(
+                future: _db.countPending(),
+                builder: (
+                  context,
+                  snapshot,
+                ) {
+                  pendingSurveys =
+                      snapshot.data ?? 0;
+
+                  return _miniMetric(
+                    icon: Icons.sync,
+                    label: 'Pending',
+                    value: '$pendingSurveys',
                   );
                 },
               ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _stat(
-    String title,
-    String value,
-    IconData icon,
+  Widget _buildExpeditionCard(
+    Map<String, Object?> expedition,
   ) {
+    final id = expedition['id'];
+
+    final name =
+        '${expedition['name'] ?? 'Ekspedisi tanpa nama'}';
+
+    final location =
+        '${expedition['location'] ?? '-'}';
+
+    final team =
+        '${expedition['team'] ?? '-'}';
+
+    final dateStart =
+        '${expedition['date_start'] ?? ''}';
+
+    final dateEnd =
+        '${expedition['date_end'] ?? ''}';
+
+    final surveyCount = id is int
+        ? (_surveyCounts[id] ?? 0)
+        : 0;
+
+    return Card(
+      margin: const EdgeInsets.only(
+        bottom: 10,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openExpedition(
+          expedition,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius:
+                          BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.explore,
+                      color: Colors.teal.shade700,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight:
+                                FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          location,
+                          style: TextStyle(
+                            color:
+                                Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.shade50,
+                      borderRadius:
+                          BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '$surveyCount survei',
+                      style: TextStyle(
+                        color:
+                            Colors.teal.shade800,
+                        fontSize: 12,
+                        fontWeight:
+                            FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _infoItem(
+                      Icons.calendar_today,
+                      _formatDateRange(
+                        dateStart,
+                        dateEnd,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _infoItem(
+                      Icons.groups,
+                      team,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment:
+                    MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'Buka ekspedisi',
+                    style: TextStyle(
+                      color:
+                          Colors.teal.shade700,
+                      fontWeight:
+                          FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.chevron_right,
+                    color:
+                        Colors.teal.shade700,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _infoItem(
+    IconData icon,
+    String text,
+  ) {
+    return Row(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: Colors.grey.shade600,
+        ),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow:
+                TextOverflow.ellipsis,
+            style: TextStyle(
+              color:
+                  Colors.grey.shade700,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDateRange(
+    String start,
+    String end,
+  ) {
+    if (start.isEmpty && end.isEmpty) {
+      return '-';
+    }
+
+    final formattedStart =
+        _formatDate(start);
+
+    if (end.isEmpty || end == start) {
+      return formattedStart;
+    }
+
+    return '$formattedStart - ${_formatDate(end)}';
+  }
+
+  String _formatDate(
+    String? value,
+  ) {
+    if (value == null ||
+        value.trim().isEmpty) {
+      return '-';
+    }
+
+    final date =
+        DateTime.tryParse(value);
+
+    if (date == null) {
+      return value;
+    }
+
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
+  String _formatTime(
+    Object? value,
+  ) {
+    if (value == null) {
+      return '-';
+    }
+
+    final date =
+        DateTime.tryParse('$value');
+
+    if (date == null) {
+      return '-';
+    }
+
+    return '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatNumber(
+    Object? value, {
+    int decimals = 2,
+  }) {
+    if (value == null) {
+      return '-';
+    }
+
+    double? number;
+
+    if (value is num) {
+      number = value.toDouble();
+    } else {
+      number =
+          double.tryParse('$value');
+    }
+
+    if (number == null) {
+      return '-';
+    }
+
+    return number.toStringAsFixed(
+      decimals,
+    );
+  }
+
+  Widget _buildSurveyCard(
+    Map<String, Object?> survey,
+  ) {
+    final surveyId = survey['id'];
+
+    final mode =
+        '${survey['survey_mode'] ?? 'DISCHARGE_ONLY'}';
+
+    final power =
+        survey['power_output_kw'];
+
+    final head =
+        survey['gross_head_m'];
+
+    final discharge =
+        survey['discharge_cms'];
+
+    final surveyName =
+        '${survey['nama_sungai'] ?? 'Sungai tidak diketahui'}';
+
+    final localId =
+        '${survey['local_id'] ?? '-'}';
+
+    final syncStatus =
+        '${survey['sync_status'] ?? 'PENDING'}';
+
+    final hasGps =
+        survey['latitude'] != null &&
+        survey['longitude'] != null;
+
+    final hasDischarge =
+        discharge != null &&
+        (double.tryParse(
+                  '$discharge',
+                ) ??
+                0) >
+            0;
+
+    final isHydro =
+        mode == 'HYDRO_POWER';
+
+    final hasHydroData =
+        !isHydro ||
+        ((double.tryParse(
+                  '$head',
+                ) ??
+                0) >
+            0 &&
+        power != null);
+
+    final dataComplete =
+        hasGps &&
+        hasDischarge &&
+        hasHydroData;
+
+    return Card(
+      margin: const EdgeInsets.only(
+        bottom: 8,
+      ),
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 8,
+        ),
+        leading: CircleAvatar(
+          backgroundColor:
+              isHydro
+                  ? Colors.teal.shade50
+                  : Colors.blue.shade50,
+          child: Icon(
+            isHydro
+                ? Icons.bolt
+                : Icons.water_drop,
+            color: isHydro
+                ? Colors.teal.shade700
+                : Colors.blue.shade700,
+          ),
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                surveyName,
+                style: const TextStyle(
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 7,
+                vertical: 3,
+              ),
+              decoration: BoxDecoration(
+                color: isHydro
+                    ? Colors.teal.shade50
+                    : Colors.blue.shade50,
+                borderRadius:
+                    BorderRadius.circular(10),
+              ),
+              child: Text(
+                isHydro
+                    ? 'HIDRO'
+                    : 'DEBIT',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight:
+                      FontWeight.w700,
+                  color: isHydro
+                      ? Colors.teal.shade800
+                      : Colors.blue.shade800,
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Padding(
+          padding:
+              const EdgeInsets.only(top: 5),
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$localId • '
+                '${_formatTime(survey['waktu_survey'])}',
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Debit: '
+                '${_formatNumber(discharge)} m³/s',
+              ),
+              if (isHydro) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Head: '
+                  '${_formatNumber(head)} m',
+                ),
+                if (power != null)
+                  Text(
+                    'Potensi: '
+                    '${_formatNumber(
+                      power,
+                      decimals: 2,
+                    )} kW',
+                  ),
+              ],
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  Icon(
+                    dataComplete
+                        ? Icons.check_circle
+                        : Icons.warning_amber,
+                    size: 15,
+                    color: dataComplete
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    dataComplete
+                        ? 'Data lengkap'
+                        : 'Perlu verifikasi',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: dataComplete
+                          ? Colors.green.shade700
+                          : Colors.orange.shade800,
+                      fontWeight:
+                          FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        isThreeLine: true,
+        trailing:
+            _statusIcon(syncStatus),
+        onTap: surveyId == null
+            ? null
+            : () => _openSurvey(
+                  surveyId as int,
+                ),
+      ),
+    );
+  }
+
+  Future<void> _openSurvey(
+    int surveyId,
+  ) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SurveyResultScreen(
+          surveyId: surveyId,
+        ),
+      ),
+    );
+
+    await _load();
+  }
+
+  Widget _buildEmptyState() {
+    return ListView(
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(24),
+      children: [
+        const SizedBox(height: 80),
+        Icon(
+          Icons.explore_off,
+          size: 72,
+          color: Colors.teal.shade300,
+        ),
+        const SizedBox(height: 20),
+        const Center(
+          child: Text(
+            'Belum ada ekspedisi',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight:
+                  FontWeight.w700,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Buat ekspedisi pertama untuk '
+          'mulai mencatat titik survei sungai.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.grey.shade700,
+          ),
+        ),
+        const SizedBox(height: 24),
+        Center(
+          child: FilledButton.icon(
+            onPressed: _createExpedition,
+            icon: const Icon(
+              Icons.add,
+            ),
+            label: const Text(
+              'Buat Ekspedisi',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateSection(
+    String title,
+    List<Map<String, Object?>> surveys,
+  ) {
+    if (surveys.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding:
+              const EdgeInsets.fromLTRB(
+            4,
+            12,
+            4,
+            8,
+          ),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontWeight:
+                  FontWeight.w700,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        ...surveys.map(
+          _buildSurveyCard,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildExpeditionHeader(
+    Map<String, Object?> expedition,
+    List<Map<String, Object?>> surveys,
+  ) {
+    double totalDischarge = 0;
+    double totalPower = 0;
+
+    double minDischarge =
+        double.infinity;
+    double maxDischarge =
+        double.negativeInfinity;
+
+    double minPower =
+        double.infinity;
+    double maxPower =
+        double.negativeInfinity;
+
+    double minHead =
+        double.infinity;
+    double maxHead =
+        double.negativeInfinity;
+
+    int hydroCount = 0;
+    int dischargeOnlyCount = 0;
+
+    for (final survey in surveys) {
+      final discharge =
+          _toDouble(
+        survey['discharge_cms'],
+      );
+
+      final power =
+          _toDouble(
+        survey['power_output_kw'],
+      );
+
+      final head =
+          _toDouble(
+        survey['gross_head_m'],
+      );
+
+      if (discharge != null) {
+        totalDischarge += discharge;
+
+        if (discharge <
+            minDischarge) {
+          minDischarge =
+              discharge;
+        }
+
+        if (discharge >
+            maxDischarge) {
+          maxDischarge =
+              discharge;
+        }
+      }
+
+      if (power != null) {
+        totalPower += power;
+
+        if (power < minPower) {
+          minPower = power;
+        }
+
+        if (power > maxPower) {
+          maxPower = power;
+        }
+      }
+
+      if (head != null) {
+        if (head < minHead) {
+          minHead = head;
+        }
+
+        if (head > maxHead) {
+          maxHead = head;
+        }
+      }
+
+      final mode =
+          '${survey['survey_mode'] ?? ''}';
+
+      if (mode ==
+          'HYDRO_POWER') {
+        hydroCount++;
+      } else {
+        dischargeOnlyCount++;
+      }
+    }
+
+    final dischargeCount =
+        surveys.where(
+      (survey) =>
+          _toDouble(
+            survey['discharge_cms'],
+          ) !=
+          null,
+    ).length;
+
+    final powerCount =
+        surveys.where(
+      (survey) =>
+          _toDouble(
+            survey['power_output_kw'],
+          ) !=
+          null,
+    ).length;
+
+    final headCount =
+        surveys.where(
+      (survey) =>
+          _toDouble(
+            survey['gross_head_m'],
+          ) !=
+          null,
+    ).length;
+
+    final avgDischarge =
+        dischargeCount == 0
+            ? null
+            : totalDischarge /
+                dischargeCount;
+
+    final avgPower =
+        powerCount == 0
+            ? null
+            : totalPower /
+                powerCount;
+
+    final name =
+        '${expedition['name'] ?? 'Ekspedisi'}';
+
+    final location =
+        '${expedition['location'] ?? '-'}';
+
+    final team =
+        '${expedition['team'] ?? '-'}';
+
+    final dateStart =
+        '${expedition['date_start'] ?? ''}';
+
+    final dateEnd =
+        '${expedition['date_end'] ?? ''}';
+
+    return Card(
+      margin: const EdgeInsets.only(
+        bottom: 12,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color:
+                        Colors.teal.shade50,
+                    borderRadius:
+                        BorderRadius.circular(
+                      14,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.explore,
+                    size: 28,
+                    color:
+                        Colors.teal.shade700,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment
+                            .start,
+                    children: [
+                      Text(
+                        name,
+                        style:
+                            const TextStyle(
+                          fontSize: 19,
+                          fontWeight:
+                              FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(
+                        height: 4,
+                      ),
+                      Text(
+                        location,
+                        style: TextStyle(
+                          color: Colors
+                              .grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _summaryBox(
+              icon: Icons.calendar_today,
+              label: 'Periode',
+              value: _formatDateRange(
+                dateStart,
+                dateEnd,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _summaryBox(
+              icon: Icons.groups,
+              label: 'Tim',
+              value: team,
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _miniMetric(
+                    icon:
+                        Icons.location_on,
+                    label:
+                        'Titik Survei',
+                    value:
+                        '${surveys.length}',
+                  ),
+                ),
+                Expanded(
+                  child: _miniMetric(
+                    icon:
+                        Icons.water_drop,
+                    label:
+                        'Rata-rata Debit',
+                    value:
+                        avgDischarge == null
+                            ? '-'
+                            : '${avgDischarge.toStringAsFixed(2)} m³/s',
+                  ),
+                ),
+                Expanded(
+                  child: _miniMetric(
+                    icon:
+                        Icons.bolt,
+                    label:
+                        'Titik Hidro',
+                    value:
+                        '$hydroCount',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (surveys.isNotEmpty) ...[
+              _rangeRow(
+                icon:
+                    Icons.water_drop,
+                label:
+                    'Rentang Debit',
+                value:
+                    minDischarge ==
+                            double.infinity
+                        ? '-'
+                        : '${minDischarge.toStringAsFixed(2)} - '
+                          '${maxDischarge.toStringAsFixed(2)} m³/s',
+              ),
+              const SizedBox(height: 8),
+              _rangeRow(
+                icon:
+                    Icons.bolt,
+                label:
+                    'Rentang Daya',
+                value:
+                    minPower ==
+                            double.infinity
+                        ? '-'
+                        : '${minPower.toStringAsFixed(2)} - '
+                          '${maxPower.toStringAsFixed(2)} kW',
+              ),
+              const SizedBox(height: 8),
+              _rangeRow(
+                icon:
+                    Icons.height,
+                label:
+                    'Rentang Head',
+                value:
+                    minHead ==
+                            double.infinity
+                        ? '-'
+                        : '${minHead.toStringAsFixed(2)} - '
+                          '${maxHead.toStringAsFixed(2)} m',
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _countChip(
+                    icon:
+                        Icons.water_drop,
+                    label:
+                        'Debit',
+                    value:
+                        '$dischargeOnlyCount',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _countChip(
+                    icon:
+                        Icons.bolt,
+                    label:
+                        'Hidro',
+                    value:
+                        '$hydroCount',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _countChip(
+                    icon:
+                        Icons.height,
+                    label:
+                        'Head',
+                    value:
+                        '$headCount',
+                  ),
+                ),
+              ],
+            ),
+            if (avgPower != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Rata-rata potensi daya: '
+                '${avgPower.toStringAsFixed(2)} kW',
+                style: TextStyle(
+                  fontSize: 13,
+                  color:
+                      Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rangeRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: Colors.teal.shade700,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight:
+                  FontWeight.w500,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight:
+                FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _countChip({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius:
+            BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: Colors.teal.shade700,
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+              ),
+              overflow:
+                  TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight:
+                  FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniMetric({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
     return Column(
       children: [
         Icon(
           icon,
+          size: 21,
           color: Colors.teal.shade700,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          title,
           textAlign: TextAlign.center,
           style: const TextStyle(
+            fontWeight:
+                FontWeight.w700,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
             fontSize: 11,
+            color:
+                Colors.grey.shade600,
           ),
         ),
       ],
+    );
+  }
+
+  Widget _summaryBox({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius:
+            BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: Colors.teal.shade700,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              fontWeight:
+                  FontWeight.w600,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              overflow:
+                  TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Icon _statusIcon(
+    String status,
+  ) {
+    switch (status.toUpperCase()) {
+      case 'SYNCED':
+        return const Icon(
+          Icons.cloud_done,
+          color: Colors.green,
+        );
+
+      case 'SYNCING':
+        return const Icon(
+          Icons.cloud_upload,
+          color: Colors.orange,
+        );
+
+      case 'FAILED':
+        return const Icon(
+          Icons.cloud_off,
+          color: Colors.red,
+        );
+
+      case 'PENDING':
+      default:
+        return const Icon(
+          Icons.cloud_queue,
+          color: Colors.grey,
+        );
+    }
+  }
+
+  double? _toDouble(
+    Object? value,
+  ) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+      '$value',
     );
   }
 }
@@ -316,15 +1416,21 @@ class SurveyListScreen extends StatefulWidget {
   });
 
   @override
-  State<SurveyListScreen> createState() => _SurveyListScreenState();
+  State<SurveyListScreen> createState() =>
+      _SurveyListScreenState();
 }
 
-class _SurveyListScreenState extends State<SurveyListScreen> {
-  final _db = LocalDatabase.instance;
+class _SurveyListScreenState
+    extends State<SurveyListScreen> {
+  final LocalDatabase _db =
+      LocalDatabase.instance;
+
+  Map<String, Object?>? _expedition;
 
   List<Map<String, Object?>> _surveys = [];
-  Map<String, Object?>? _expedition;
+
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -333,35 +1439,41 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
   }
 
   Future<void> _load() async {
-    if (mounted) {
+    try {
+      final expedition =
+          await _db.getExpedition(
+        widget.expeditionId,
+      );
+
+      final surveys =
+          await _db.getSurveysForExpedition(
+        widget.expeditionId,
+      );
+
+      if (!mounted) return;
+
       setState(() {
-        _loading = true;
+        _expedition = expedition;
+        _surveys = surveys;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+        _error = e.toString();
       });
     }
-
-    final expedition =
-        await _db.getExpedition(widget.expeditionId);
-
-    final surveys =
-        await _db.getSurveysForExpedition(
-      widget.expeditionId,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      _expedition = expedition;
-      _surveys = surveys;
-      _loading = false;
-    });
   }
 
   Future<void> _newSurvey() async {
-    await Navigator.push(
-      context,
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SurveyFormScreen(
-          expeditionId: widget.expeditionId,
+          expeditionId:
+              widget.expeditionId,
         ),
       ),
     );
@@ -369,9 +1481,10 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     await _load();
   }
 
-  Future<void> _openSurvey(int surveyId) async {
-    await Navigator.push(
-      context,
+  Future<void> _openSurvey(
+    int surveyId,
+  ) async {
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => SurveyResultScreen(
           surveyId: surveyId,
@@ -382,658 +1495,401 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     await _load();
   }
 
-  Map<String, List<Map<String, Object?>>> _groupByDate() {
-    final grouped =
-        <String, List<Map<String, Object?>>>{};
-
-    for (final survey in _surveys) {
-      final rawDate = survey['waktu_survey'];
-
-      String dateKey;
-
-      if (rawDate == null) {
-        dateKey = 'Tanggal tidak diketahui';
-      } else {
-        final parsed = DateTime.tryParse(
-          rawDate.toString(),
-        );
-
-        if (parsed == null) {
-          dateKey = rawDate.toString().split(' ').first;
-        } else {
-          dateKey = _dateKey(parsed);
-        }
-      }
-
-      grouped.putIfAbsent(dateKey, () => []);
-      grouped[dateKey]!.add(survey);
-    }
-
-    return grouped;
-  }
-
-  String _dateKey(DateTime date) {
-    return '${date.year.toString().padLeft(4, '0')}-'
-        '${date.month.toString().padLeft(2, '0')}-'
-        '${date.day.toString().padLeft(2, '0')}';
-  }
-
-  String _formatDate(String dateKey) {
-    final date = DateTime.tryParse(dateKey);
-
-    if (date == null) {
-      return dateKey;
-    }
-
-    const months = [
-      'Januari',
-      'Februari',
-      'Maret',
-      'April',
-      'Mei',
-      'Juni',
-      'Juli',
-      'Agustus',
-      'September',
-      'Oktober',
-      'November',
-      'Desember',
-    ];
-
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
-
-  String _formatTime(Object? rawDate) {
-    if (rawDate == null) {
-      return '-';
-    }
-
-    final parsed = DateTime.tryParse(
-      rawDate.toString(),
-    );
-
-    if (parsed == null) {
-      final text = rawDate.toString();
-
-      if (text.contains(' ')) {
-        return text.split(' ').last;
-      }
-
-      return text;
-    }
-
-    return '${parsed.hour.toString().padLeft(2, '0')}:'
-        '${parsed.minute.toString().padLeft(2, '0')}';
-  }
-
-  String _formatNumber(
-    Object? value, {
-    int decimals = 3,
-  }) {
-    if (value == null) {
-      return '-';
-    }
-
-    final number = value is num
-        ? value.toDouble()
-        : double.tryParse(value.toString());
-
-    if (number == null) {
-      return '-';
-    }
-
-    return number.toStringAsFixed(decimals);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final grouped = _groupByDate();
+    final name =
+        '${_expedition?['name'] ?? 'Ekspedisi'}';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          '${_expedition?['name'] ?? 'Ekspedisi'}',
-        ),
-        backgroundColor: Colors.teal.shade800,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
+        title: Text(name),
       ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(
-                  16,
-                  16,
-                  16,
-                  100,
-                ),
-                children: [
-                  _buildExpeditionHeader(),
-                  const SizedBox(height: 16),
-
-                  if (_surveys.isEmpty)
-                    _buildEmptyState()
-                  else
-                    ...grouped.entries.map(
-                      (entry) => _buildDateSection(
-                        entry.key,
-                        entry.value,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton:
+          FloatingActionButton.extended(
         onPressed: _newSurvey,
         icon: const Icon(
           Icons.add_location_alt,
         ),
         label: const Text(
-          'Pengukuran Baru',
+          'Tambah Survei',
         ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: _buildBody(),
       ),
     );
   }
 
-  Widget _buildExpeditionHeader() {
-    double totalDischarge = 0;
-    double minDischarge = double.infinity;
-    double maxDischarge = double.negativeInfinity;
-
-    double totalPower = 0;
-    double minPower = double.infinity;
-    double maxPower = double.negativeInfinity;
-
-    double totalHead = 0;
-    double minHead = double.infinity;
-    double maxHead = double.negativeInfinity;
-
-    int dischargeCount = 0;
-    int hydroCount = 0;
-    int powerCount = 0;
-    int headCount = 0;
-
-    for (final survey in _surveys) {
-      final mode =
-          '${survey['survey_mode'] ?? 'DISCHARGE_ONLY'}';
-
-      final isHydroPower =
-          mode == 'HYDRO_POWER';
-
-      // -------------------------------------------------------
-      // DEBIT
-      // -------------------------------------------------------
-      final rawDischarge =
-          survey['discharge_cms'];
-
-      double? discharge;
-
-      if (rawDischarge is num) {
-        discharge = rawDischarge.toDouble();
-      } else if (rawDischarge != null) {
-        discharge =
-            double.tryParse(rawDischarge.toString());
-      }
-
-      if (discharge != null) {
-        totalDischarge += discharge;
-
-        if (discharge < minDischarge) {
-          minDischarge = discharge;
-        }
-
-        if (discharge > maxDischarge) {
-          maxDischarge = discharge;
-        }
-
-        dischargeCount++;
-      }
-
-      // -------------------------------------------------------
-      // HYDRO POWER
-      // -------------------------------------------------------
-      if (isHydroPower) {
-        hydroCount++;
-
-        final rawPower =
-            survey['power_output_kw'];
-
-        double? power;
-
-        if (rawPower is num) {
-          power = rawPower.toDouble();
-        } else if (rawPower != null) {
-          power =
-              double.tryParse(rawPower.toString());
-        }
-
-        if (power != null) {
-          totalPower += power;
-
-          if (power < minPower) {
-            minPower = power;
-          }
-
-          if (power > maxPower) {
-            maxPower = power;
-          }
-
-          powerCount++;
-        }
-
-        // -----------------------------------------------------
-        // HEAD
-        // -----------------------------------------------------
-        final rawHead =
-            survey['gross_head_m'];
-
-        double? head;
-
-        if (rawHead is num) {
-          head = rawHead.toDouble();
-        } else if (rawHead != null) {
-          head =
-              double.tryParse(rawHead.toString());
-        }
-
-        if (head != null) {
-          totalHead += head;
-
-          if (head < minHead) {
-            minHead = head;
-          }
-
-          if (head > maxHead) {
-            maxHead = head;
-          }
-
-          headCount++;
-        }
-      }
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
     }
 
-    final averageDischarge =
-        dischargeCount > 0
-            ? totalDischarge / dischargeCount
-            : null;
-
-    final averagePower =
-        powerCount > 0
-            ? totalPower / powerCount
-            : null;
-
-    final averageHead =
-        headCount > 0
-            ? totalHead / headCount
-            : null;
-
-    final dateStart =
-        '${_expedition?['date_start'] ?? '-'}';
-
-    final dateEnd =
-        _expedition?['date_end'];
-
-    final period =
-        dateEnd == null ||
-                dateEnd.toString().trim().isEmpty
-            ? dateStart
-            : '$dateStart s/d ${dateEnd.toString()}';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
-          children: [
-            // =================================================
-            // IDENTITAS EKSPEDISI
-            // =================================================
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor:
-                      Colors.teal.shade50,
-                  child: Icon(
-                    Icons.forest,
-                    color: Colors.teal.shade700,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    '${_expedition?['name'] ?? 'Ekspedisi'}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 14),
-
-            Text(
-              'ID: ${_expedition?['local_id'] ?? '-'}',
-            ),
-
-            const SizedBox(height: 4),
-
-            Text(
-              'Tim: ${_expedition?['team'] ?? '-'}',
-            ),
-
-            const SizedBox(height: 4),
-
-            Text(
-              'Lokasi: ${_expedition?['location'] ?? '-'}',
-            ),
-
-            const SizedBox(height: 4),
-
-            Text(
-              'Periode: $period',
-            ),
-
-            const Divider(height: 24),
-
-            // =================================================
-            // RINGKASAN JUMLAH
-            // =================================================
-            Row(
-              children: [
-                Expanded(
-                  child: _summaryBox(
-                    icon:
-                        Icons.location_on_outlined,
-                    label: 'Titik',
-                    value:
-                        '${_surveys.length}',
-                    unit: 'survei',
-                  ),
-                ),
-
-                const SizedBox(width: 8),
-
-                Expanded(
-                  child: _summaryBox(
-                    icon:
-                        Icons.water_drop_outlined,
-                    label: 'Debit',
-                    value: dischargeCount > 0
-                        ? '${averageDischarge!.toStringAsFixed(2)}'
-                        : '-',
-                    unit: 'm³/s rata-rata',
-                  ),
-                ),
-
-                const SizedBox(width: 8),
-
-                Expanded(
-                  child: _summaryBox(
-                    icon:
-                        Icons.bolt_outlined,
-                    label: 'Hidro',
-                    value:
-                        '$hydroCount',
-                    unit: 'titik',
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 12),
-
-            // =================================================
-            // RENTANG DEBIT
-            // =================================================
-            if (dischargeCount > 0)
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color:
-                      Colors.blue.shade50,
-                  borderRadius:
-                      BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.water,
-                      color:
-                          Colors.blue.shade700,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Rentang Debit',
-                            style: TextStyle(
-                              fontWeight:
-                                  FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            '${minDischarge.toStringAsFixed(3)} – '
-                            '${maxDischarge.toStringAsFixed(3)} m³/s',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+    if (_error != null) {
+      return ListView(
+        physics:
+            const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        children: [
+          const SizedBox(height: 80),
+          const Icon(
+            Icons.error_outline,
+            size: 56,
+            color: Colors.red,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          Center(
+            child: FilledButton(
+              onPressed: _load,
+              child: const Text(
+                'Coba Lagi',
               ),
+            ),
+          ),
+        ],
+      );
+    }
 
-            // =================================================
-            // RINGKASAN HIDRO
-            // =================================================
-            if (hydroCount > 0) ...[
-              const SizedBox(height: 10),
+    final expedition =
+        _expedition ??
+            <String, Object?>{};
 
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color:
-                      Colors.teal.shade50,
-                  borderRadius:
-                      BorderRadius.circular(10),
-                ),
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.bolt,
-                          color:
-                              Colors.teal.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Potensi Hidro',
-                          style: TextStyle(
-                            fontWeight:
-                                FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _miniMetric(
-                            'Daya rata-rata',
-                            averagePower == null
-                                ? '-'
-                                : '${averagePower.toStringAsFixed(2)} kW',
-                          ),
-                        ),
-                        Expanded(
-                          child: _miniMetric(
-                            'Daya min',
-                            powerCount == 0
-                                ? '-'
-                                : '${minPower.toStringAsFixed(2)} kW',
-                          ),
-                        ),
-                        Expanded(
-                          child: _miniMetric(
-                            'Daya max',
-                            powerCount == 0
-                                ? '-'
-                                : '${maxPower.toStringAsFixed(2)} kW',
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    if (headCount > 0) ...[
-                      const SizedBox(height: 10),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _miniMetric(
-                              'Head rata-rata',
-                              '${averageHead!.toStringAsFixed(2)} m',
-                            ),
-                          ),
-                          Expanded(
-                            child: _miniMetric(
-                              'Head min',
-                              '${minHead.toStringAsFixed(2)} m',
-                            ),
-                          ),
-                          Expanded(
-                            child: _miniMetric(
-                              'Head max',
-                              '${maxHead.toStringAsFixed(2)} m',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
+    return ListView(
+      physics:
+          const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        12,
+        12,
+        12,
+        100,
       ),
+      children: [
+        _buildExpeditionHeader(
+          expedition,
+          _surveys,
+        ),
+        if (_surveys.isEmpty)
+          _buildNoSurveyState()
+        else
+          ..._buildSurveyGroups(),
+      ],
     );
   }
 
-  Widget _miniMetric(
-    String label,
+  List<Widget> _buildSurveyGroups() {
+    final Map<String,
+            List<Map<String, Object?>>>
+        grouped = {};
+
+    for (final survey in _surveys) {
+      final rawDate =
+          '${survey['waktu_survey'] ?? ''}';
+
+      final date =
+          DateTime.tryParse(rawDate);
+
+      final key = date == null
+          ? 'Tanggal tidak diketahui'
+          : '${date.year}-'
+              '${date.month.toString().padLeft(2, '0')}-'
+              '${date.day.toString().padLeft(2, '0')}';
+
+      grouped.putIfAbsent(
+        key,
+        () => [],
+      );
+
+      grouped[key]!.add(
+        survey,
+      );
+    }
+
+    final keys =
+        grouped.keys.toList()
+          ..sort(
+            (a, b) =>
+                b.compareTo(a),
+          );
+
+    return keys.map(
+      (key) => _buildDateSection(
+        _displayGroupDate(key),
+        grouped[key]!,
+      ),
+    ).toList();
+  }
+
+  String _displayGroupDate(
     String value,
   ) {
-    return Padding(
-      padding:
-          const EdgeInsets.symmetric(
-        horizontal: 4,
-      ),
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              color:
-                  Colors.grey.shade700,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
+    if (value ==
+        'Tanggal tidak diketahui') {
+      return value;
+    }
+
+    final date =
+        DateTime.tryParse(value);
+
+    if (date == null) {
+      return value;
+    }
+
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
   }
-  Widget _summaryBox({
-    required IconData icon,
-    required String label,
-    required String value,
-    required String unit,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 12,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.teal.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: Colors.teal.shade100,
+
+  Widget _buildDateSection(
+    String title,
+    List<Map<String, Object?>> surveys,
+  ) {
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding:
+              const EdgeInsets.fromLTRB(
+            4,
+            8,
+            4,
+            8,
+          ),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontWeight:
+                  FontWeight.w700,
+              fontSize: 14,
+            ),
+          ),
         ),
+        ...surveys.map(
+          (survey) =>
+              _buildSurveyCard(
+            survey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSurveyCard(
+    Map<String, Object?> survey,
+  ) {
+    final surveyId =
+        survey['id'];
+
+    final mode =
+        '${survey['survey_mode'] ?? 'DISCHARGE_ONLY'}';
+
+    final isHydro =
+        mode == 'HYDRO_POWER';
+
+    final power =
+        survey['power_output_kw'];
+
+    final head =
+        survey['gross_head_m'];
+
+    final discharge =
+        survey['discharge_cms'];
+
+    final surveyName =
+        '${survey['nama_sungai'] ?? 'Sungai tidak diketahui'}';
+
+    final localId =
+        '${survey['local_id'] ?? '-'}';
+
+    final syncStatus =
+        '${survey['sync_status'] ?? 'PENDING'}';
+
+    final hasGps =
+        survey['latitude'] != null &&
+        survey['longitude'] != null;
+
+    final dischargeValue =
+        double.tryParse(
+              '$discharge',
+            ) ??
+            0;
+
+    final headValue =
+        double.tryParse(
+              '$head',
+            ) ??
+            0;
+
+    final hasDischarge =
+        dischargeValue > 0;
+
+    final hasHydroData =
+        !isHydro ||
+        (headValue > 0 &&
+            power != null);
+
+    final dataComplete =
+        hasGps &&
+        hasDischarge &&
+        hasHydroData;
+
+    return Card(
+      margin: const EdgeInsets.only(
+        bottom: 8,
       ),
-      child: Column(
-        children: [
-          Icon(
-            icon,
-            size: 22,
-            color: Colors.teal.shade700,
+      child: ListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 8,
+        ),
+        leading: CircleAvatar(
+          backgroundColor:
+              isHydro
+                  ? Colors.teal.shade50
+                  : Colors.blue.shade50,
+          child: Icon(
+            isHydro
+                ? Icons.bolt
+                : Icons.water_drop,
+            color: isHydro
+                ? Colors.teal.shade700
+                : Colors.blue.shade700,
           ),
-          const SizedBox(height: 5),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey.shade700,
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                surveyName,
+                style: const TextStyle(
+                  fontWeight:
+                      FontWeight.w600,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+            const SizedBox(width: 6),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 7,
+                vertical: 3,
+              ),
+              decoration: BoxDecoration(
+                color: isHydro
+                    ? Colors.teal.shade50
+                    : Colors.blue.shade50,
+                borderRadius:
+                    BorderRadius.circular(
+                  10,
+                ),
+              ),
+              child: Text(
+                isHydro
+                    ? 'HIDRO'
+                    : 'DEBIT',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight:
+                      FontWeight.w700,
+                  color: isHydro
+                      ? Colors.teal.shade800
+                      : Colors.blue.shade800,
+                ),
+              ),
             ),
+          ],
+        ),
+        subtitle: Padding(
+          padding:
+              const EdgeInsets.only(
+            top: 5,
           ),
-          Text(
-            unit,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade600,
-            ),
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$localId • '
+                '${_formatTime(
+                  survey['waktu_survey'],
+                )}',
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Debit: '
+                '${_formatNumber(
+                  discharge,
+                )} m³/s',
+              ),
+              if (isHydro) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Head: '
+                  '${_formatNumber(
+                    head,
+                  )} m',
+                ),
+                if (power != null)
+                  Text(
+                    'Potensi: '
+                    '${_formatNumber(
+                      power,
+                      decimals: 2,
+                    )} kW',
+                  ),
+              ],
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  Icon(
+                    dataComplete
+                        ? Icons.check_circle
+                        : Icons.warning_amber,
+                    size: 15,
+                    color: dataComplete
+                        ? Colors.green.shade700
+                        : Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    dataComplete
+                        ? 'Data lengkap'
+                        : 'Perlu verifikasi',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: dataComplete
+                          ? Colors.green.shade700
+                          : Colors.orange.shade800,
+                      fontWeight:
+                          FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
+        trailing:
+            _statusIcon(syncStatus),
+        onTap: surveyId == null
+            ? null
+            : () => _openSurvey(
+                  surveyId as int,
+                ),
       ),
     );
   }
-  Widget _buildEmptyState() {
+
+  Widget _buildNoSurveyState() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -1041,24 +1897,29 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
           children: [
             Icon(
               Icons.water_drop_outlined,
-              size: 52,
-              color: Colors.teal.shade300,
+              size: 56,
+              color:
+                  Colors.teal.shade300,
             ),
             const SizedBox(height: 12),
             const Text(
-              'Belum ada pengukuran',
+              'Belum ada titik survei',
               style: TextStyle(
+                fontWeight:
+                    FontWeight.w700,
                 fontSize: 17,
-                fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Anda dapat melakukan beberapa '
-              'pengukuran dalam satu hari atau '
-              'kembali pada hari berikutnya untuk '
-              'menambahkan titik pengukuran baru.',
-              textAlign: TextAlign.center,
+            const SizedBox(height: 6),
+            Text(
+              'Tambahkan survei sungai '
+              'pertama pada ekspedisi ini.',
+              textAlign:
+                  TextAlign.center,
+              style: TextStyle(
+                color:
+                    Colors.grey.shade700,
+              ),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -1067,7 +1928,7 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                 Icons.add_location_alt,
               ),
               label: const Text(
-                'Mulai Pengukuran',
+                'Tambah Survei',
               ),
             ),
           ],
@@ -1076,99 +1937,136 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     );
   }
 
-  Widget _buildDateSection(
-    String dateKey,
+  Widget _buildExpeditionHeader(
+    Map<String, Object?> expedition,
     List<Map<String, Object?>> surveys,
   ) {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            4,
-            4,
-            4,
-            8,
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.calendar_today,
-                size: 19,
-                color: Colors.teal.shade700,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _formatDate(dateKey),
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.teal.shade800,
-                  ),
-                ),
-              ),
-              Text(
-                '${surveys.length} titik',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-            ],
-          ),
-        ),
-        ...surveys.map(
-          (survey) => _buildSurveyCard(survey),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-    Widget _buildExpeditionHeader() {
     double totalDischarge = 0;
     double totalPower = 0;
+
+    double minDischarge =
+        double.infinity;
+    double maxDischarge =
+        double.negativeInfinity;
+
+    double minPower =
+        double.infinity;
+    double maxPower =
+        double.negativeInfinity;
+
+    double minHead =
+        double.infinity;
+    double maxHead =
+        double.negativeInfinity;
+
+    int hydroCount = 0;
+    int dischargeOnlyCount = 0;
+
+    int dischargeCount = 0;
     int powerCount = 0;
+    int headCount = 0;
 
-    for (final survey in _surveys) {
-      final discharge = survey['discharge_cms'];
-      final power = survey['power_output_kw'];
+    for (final survey in surveys) {
+      final discharge =
+          _toDouble(
+        survey['discharge_cms'],
+      );
 
-      if (discharge is num) {
-        totalDischarge += discharge.toDouble();
-      } else if (discharge != null) {
+      final power =
+          _toDouble(
+        survey['power_output_kw'],
+      );
+
+      final head =
+          _toDouble(
+        survey['gross_head_m'],
+      );
+
+      if (discharge != null) {
+        dischargeCount++;
         totalDischarge +=
-            double.tryParse(discharge.toString()) ?? 0;
+            discharge;
+
+        if (discharge <
+            minDischarge) {
+          minDischarge =
+              discharge;
+        }
+
+        if (discharge >
+            maxDischarge) {
+          maxDischarge =
+              discharge;
+        }
       }
 
-      if (power is num) {
-        totalPower += power.toDouble();
+      if (power != null) {
         powerCount++;
-      } else if (power != null) {
-        final parsedPower =
-            double.tryParse(power.toString());
+        totalPower += power;
 
-        if (parsedPower != null) {
-          totalPower += parsedPower;
-          powerCount++;
+        if (power < minPower) {
+          minPower = power;
         }
+
+        if (power > maxPower) {
+          maxPower = power;
+        }
+      }
+
+      if (head != null) {
+        headCount++;
+
+        if (head < minHead) {
+          minHead = head;
+        }
+
+        if (head > maxHead) {
+          maxHead = head;
+        }
+      }
+
+      final mode =
+          '${survey['survey_mode'] ?? ''}';
+
+      if (mode ==
+          'HYDRO_POWER') {
+        hydroCount++;
+      } else {
+        dischargeOnlyCount++;
       }
     }
 
+    final avgDischarge =
+        dischargeCount == 0
+            ? null
+            : totalDischarge /
+                dischargeCount;
+
+    final avgPower =
+        powerCount == 0
+            ? null
+            : totalPower /
+                powerCount;
+
+    final name =
+        '${expedition['name'] ?? 'Ekspedisi'}';
+
+    final location =
+        '${expedition['location'] ?? '-'}';
+
+    final team =
+        '${expedition['team'] ?? '-'}';
+
     final dateStart =
-        '${_expedition?['date_start'] ?? '-'}';
+        '${expedition['date_start'] ?? ''}';
 
     final dateEnd =
-        _expedition?['date_end'];
-
-    final period = dateEnd == null ||
-            dateEnd.toString().trim().isEmpty
-        ? dateStart
-        : '$dateStart s/d ${dateEnd.toString()}';
+        '${expedition['date_end'] ?? ''}';
 
     return Card(
+      margin: const EdgeInsets.only(
+        bottom: 12,
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -1176,88 +2074,325 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
               CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  backgroundColor:
-                      Colors.teal.shade50,
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color:
+                        Colors.teal.shade50,
+                    borderRadius:
+                        BorderRadius.circular(
+                      14,
+                    ),
+                  ),
                   child: Icon(
-                    Icons.forest,
-                    color: Colors.teal.shade700,
+                    Icons.explore,
+                    size: 28,
+                    color:
+                        Colors.teal.shade700,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    '${_expedition?['name'] ?? 'Ekspedisi'}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment
+                            .start,
+                    children: [
+                      Text(
+                        name,
+                        style:
+                            const TextStyle(
+                          fontSize: 19,
+                          fontWeight:
+                              FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(
+                        height: 4,
+                      ),
+                      Text(
+                        location,
+                        style: TextStyle(
+                          color: Colors
+                              .grey.shade700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
-
             const SizedBox(height: 14),
-
-            Text(
-              'ID: ${_expedition?['local_id'] ?? '-'}',
+            _summaryBox(
+              icon:
+                  Icons.calendar_today,
+              label:
+                  'Periode',
+              value:
+                  _formatDateRange(
+                dateStart,
+                dateEnd,
+              ),
             ),
-            const SizedBox(height: 4),
-
-            Text(
-              'Tim: ${_expedition?['team'] ?? '-'}',
+            const SizedBox(height: 8),
+            _summaryBox(
+              icon: Icons.groups,
+              label: 'Tim',
+              value: team,
             ),
-            const SizedBox(height: 4),
-
-            Text(
-              'Lokasi: ${_expedition?['location'] ?? '-'}',
-            ),
-            const SizedBox(height: 4),
-
-            Text(
-              'Periode: $period',
-            ),
-
-            const Divider(height: 24),
-
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: _summaryBox(
-                    icon: Icons.location_on_outlined,
-                    label: 'Titik',
-                    value: '${_surveys.length}',
-                    unit: 'survei',
+                  child: _miniMetric(
+                    icon:
+                        Icons.location_on,
+                    label:
+                        'Titik Survei',
+                    value:
+                        '${surveys.length}',
                   ),
                 ),
-                const SizedBox(width: 8),
                 Expanded(
-                  child: _summaryBox(
-                    icon: Icons.water_drop_outlined,
-                    label: 'Total Debit',
-                    value: totalDischarge
-                        .toStringAsFixed(2),
-                    unit: 'm³/s',
+                  child: _miniMetric(
+                    icon:
+                        Icons.water_drop,
+                    label:
+                        'Rata-rata Debit',
+                    value:
+                        avgDischarge == null
+                            ? '-'
+                            : '${avgDischarge.toStringAsFixed(2)} m³/s',
                   ),
                 ),
-                const SizedBox(width: 8),
                 Expanded(
-                  child: _summaryBox(
-                    icon: Icons.bolt_outlined,
-                    label: 'Total Daya',
-                    value: powerCount == 0
-                        ? '-'
-                        : totalPower
-                            .toStringAsFixed(2),
-                    unit: 'kW',
+                  child: _miniMetric(
+                    icon: Icons.bolt,
+                    label:
+                        'Titik Hidro',
+                    value:
+                        '$hydroCount',
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 14),
+            if (surveys.isNotEmpty) ...[
+              _rangeRow(
+                icon:
+                    Icons.water_drop,
+                label:
+                    'Rentang Debit',
+                value:
+                    minDischarge ==
+                            double.infinity
+                        ? '-'
+                        : '${minDischarge.toStringAsFixed(2)} - '
+                          '${maxDischarge.toStringAsFixed(2)} m³/s',
+              ),
+              const SizedBox(height: 8),
+              _rangeRow(
+                icon:
+                    Icons.bolt,
+                label:
+                    'Rentang Daya',
+                value:
+                    minPower ==
+                            double.infinity
+                        ? '-'
+                        : '${minPower.toStringAsFixed(2)} - '
+                          '${maxPower.toStringAsFixed(2)} kW',
+              ),
+              const SizedBox(height: 8),
+              _rangeRow(
+                icon:
+                    Icons.height,
+                label:
+                    'Rentang Head',
+                value:
+                    minHead ==
+                            double.infinity
+                        ? '-'
+                        : '${minHead.toStringAsFixed(2)} - '
+                          '${maxHead.toStringAsFixed(2)} m',
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _countChip(
+                    icon:
+                        Icons.water_drop,
+                    label:
+                        'Debit',
+                    value:
+                        '$dischargeOnlyCount',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _countChip(
+                    icon:
+                        Icons.bolt,
+                    label:
+                        'Hidro',
+                    value:
+                        '$hydroCount',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _countChip(
+                    icon:
+                        Icons.height,
+                    label:
+                        'Head',
+                    value:
+                        '$headCount',
+                  ),
+                ),
+              ],
+            ),
+            if (avgPower != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Rata-rata potensi daya: '
+                '${avgPower.toStringAsFixed(2)} kW',
+                style: TextStyle(
+                  fontSize: 13,
+                  color:
+                      Colors.grey.shade700,
+                ),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _rangeRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: Colors.teal.shade700,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight:
+                  FontWeight.w500,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight:
+                FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _countChip({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius:
+            BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: Colors.teal.shade700,
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+              ),
+              overflow:
+                  TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight:
+                  FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniMetric({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Column(
+      children: [
+        Icon(
+          icon,
+          size: 21,
+          color: Colors.teal.shade700,
+        ),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontWeight:
+                FontWeight.w700,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 11,
+            color:
+                Colors.grey.shade600,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1265,94 +2400,425 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     required IconData icon,
     required String label,
     required String value,
-    required String unit,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 12,
+      width: double.infinity,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
       ),
       decoration: BoxDecoration(
-        color: Colors.teal.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: Colors.teal.shade100,
-        ),
+        color: Colors.grey.shade50,
+        borderRadius:
+            BorderRadius.circular(10),
       ),
-      child: Column(
+      child: Row(
         children: [
           Icon(
             icon,
-            size: 22,
+            size: 18,
             color: Colors.teal.shade700,
           ),
-          const SizedBox(height: 5),
+          const SizedBox(width: 8),
           Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            textAlign: TextAlign.center,
+            '$label: ',
             style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+              fontWeight:
+                  FontWeight.w600,
             ),
           ),
-          Text(
-            unit,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 10,
-              color: Colors.grey.shade600,
+          Expanded(
+            child: Text(
+              value,
+              overflow:
+                  TextOverflow.ellipsis,
             ),
           ),
         ],
       ),
     );
   }
-  Widget _statusIcon(String status) {
-    switch (status) {
-      case 'SYNCED':
-        return const Tooltip(
-          message: 'Sudah tersinkron',
-          child: Icon(
-            Icons.cloud_done,
-            color: Colors.green,
-          ),
-        );
 
-      case 'FAILED':
-        return const Tooltip(
-          message: 'Sinkronisasi gagal',
-          child: Icon(
-            Icons.cloud_off,
-            color: Colors.red,
-          ),
+  Icon _statusIcon(
+    String status,
+  ) {
+    switch (status.toUpperCase()) {
+      case 'SYNCED':
+        return const Icon(
+          Icons.cloud_done,
+          color: Colors.green,
         );
 
       case 'SYNCING':
-        return const Tooltip(
-          message: 'Sedang sinkronisasi',
-          child: Icon(
-            Icons.cloud_sync,
-            color: Colors.blue,
-          ),
+        return const Icon(
+          Icons.cloud_upload,
+          color: Colors.orange,
         );
 
+      case 'FAILED':
+        return const Icon(
+          Icons.cloud_off,
+          color: Colors.red,
+        );
+
+      case 'PENDING':
       default:
-        return const Tooltip(
-          message: 'Menunggu sinkronisasi',
-          child: Icon(
-            Icons.cloud_upload_outlined,
-            color: Colors.orange,
-          ),
+        return const Icon(
+          Icons.cloud_queue,
+          color: Colors.grey,
         );
     }
+  }
+
+  String _formatTime(
+    Object? value,
+  ) {
+    if (value == null) {
+      return '-';
+    }
+
+    final date =
+        DateTime.tryParse('$value');
+
+    if (date == null) {
+      return '-';
+    }
+
+    return '${date.hour.toString().padLeft(2, '0')}:'
+        '${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatNumber(
+    Object? value, {
+    int decimals = 2,
+  }) {
+    if (value == null) {
+      return '-';
+    }
+
+    double? number;
+
+    if (value is num) {
+      number = value.toDouble();
+    } else {
+      number =
+          double.tryParse('$value');
+    }
+
+    if (number == null) {
+      return '-';
+    }
+
+    return number.toStringAsFixed(
+      decimals,
+    );
+  }
+
+  double? _toDouble(
+    Object? value,
+  ) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+      '$value',
+    );
+  }
+}
+
+class _ExpeditionFormData {
+  final String name;
+  final String dateStart;
+  final String dateEnd;
+  final String team;
+  final String location;
+  final String notes;
+
+  const _ExpeditionFormData({
+    required this.name,
+    required this.dateStart,
+    required this.dateEnd,
+    required this.team,
+    required this.location,
+    required this.notes,
+  });
+}
+
+class _CreateExpeditionDialog
+    extends StatefulWidget {
+  const _CreateExpeditionDialog();
+
+  @override
+  State<_CreateExpeditionDialog>
+      createState() =>
+          _CreateExpeditionDialogState();
+}
+
+class _CreateExpeditionDialogState
+    extends State<_CreateExpeditionDialog> {
+  final _formKey =
+      GlobalKey<FormState>();
+
+  final _nameController =
+      TextEditingController();
+
+  final _teamController =
+      TextEditingController();
+
+  final _locationController =
+      TextEditingController();
+
+  final _notesController =
+      TextEditingController();
+
+  DateTime? _dateStart;
+  DateTime? _dateEnd;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _teamController.dispose();
+    _locationController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickStartDate() async {
+    final picked =
+        await showDatePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDate:
+          _dateStart ??
+              DateTime.now(),
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _dateStart = picked;
+
+      if (_dateEnd != null &&
+          _dateEnd!.isBefore(picked)) {
+        _dateEnd = picked;
+      }
+    });
+  }
+
+  Future<void> _pickEndDate() async {
+    final initial =
+        _dateEnd ??
+            _dateStart ??
+            DateTime.now();
+
+    final picked =
+        await showDatePicker(
+      context: context,
+      firstDate:
+          _dateStart ??
+              DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDate: initial,
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _dateEnd = picked;
+    });
+  }
+
+  String _dateText(
+    DateTime? date,
+  ) {
+    if (date == null) {
+      return 'Pilih tanggal';
+    }
+
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!
+        .validate()) {
+      return;
+    }
+
+    if (_dateStart == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Tanggal mulai harus dipilih.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (_dateEnd == null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Tanggal selesai harus dipilih.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _ExpeditionFormData(
+        name:
+            _nameController.text.trim(),
+        dateStart:
+            _dateStart!.toIso8601String(),
+        dateEnd:
+            _dateEnd!.toIso8601String(),
+        team:
+            _teamController.text.trim(),
+        location:
+            _locationController.text.trim(),
+        notes:
+            _notesController.text.trim(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text(
+        'Ekspedisi Baru',
+      ),
+      content: SizedBox(
+        width: 500,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize:
+                  MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller:
+                      _nameController,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Nama ekspedisi',
+                    border:
+                        OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value == null ||
+                        value.trim().isEmpty) {
+                      return 'Nama ekspedisi wajib diisi.';
+                    }
+
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _pickStartDate,
+                        icon: const Icon(
+                          Icons.calendar_today,
+                        ),
+                        label: Text(
+                          _dateText(
+                            _dateStart,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _pickEndDate,
+                        icon: const Icon(
+                          Icons.event,
+                        ),
+                        label: Text(
+                          _dateText(
+                            _dateEnd,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller:
+                      _teamController,
+                  decoration:
+                      const InputDecoration(
+                    labelText: 'Tim',
+                    border:
+                        OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller:
+                      _locationController,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Lokasi wilayah',
+                    border:
+                        OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller:
+                      _notesController,
+                  maxLines: 3,
+                  decoration:
+                      const InputDecoration(
+                    labelText:
+                        'Catatan',
+                    border:
+                        OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () =>
+              Navigator.of(context).pop(),
+          child: const Text(
+            'Batal',
+          ),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text(
+            'Simpan',
+          ),
+        ),
+      ],
+    );
   }
 }
