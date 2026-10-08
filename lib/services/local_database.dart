@@ -753,12 +753,28 @@ class LocalDatabase {
         0;
   }
 
-  Future<int> countSurveys() async {
+    Future<int> countSurveys() async {
     final db = await database;
 
     final result = await db.rawQuery(
       'SELECT COUNT(*) AS c '
       'FROM surveys',
+    );
+
+    return Sqflite.firstIntValue(
+          result,
+        ) ??
+        0;
+  }
+
+  Future<int> countSurveysForExpedition(int expeditionId) async {
+    final db = await database;
+
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS c '
+      'FROM surveys '
+      'WHERE expedition_id = ?',
+      [expeditionId],
     );
 
     return Sqflite.firstIntValue(
