@@ -2570,7 +2570,7 @@ class _SurveyListScreenState
 class _ExpeditionFormData {
   final String name;
   final DateTime dateStart;
-  final DateTime dateEnd;
+  final String dateEnd;
   final String team;
   final String location;
   final String notes;
@@ -2717,7 +2717,7 @@ class _CreateExpeditionDialogState
         name:
             _nameController.text.trim(),
         dateStart: _dateStart!,
-        dateEnd: _dateEnd!,
+        dateEnd: _dateEnd!.toIso8601String(),
         team:
             _teamController.text.trim(),
         location:
