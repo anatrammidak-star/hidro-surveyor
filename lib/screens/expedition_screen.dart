@@ -1937,6 +1937,41 @@ class _SurveyListScreenState
     );
   }
 
+  String _formatDateRange(
+    String start,
+    String end,
+  ) {
+    if (start.isEmpty && end.isEmpty) {
+      return '-';
+    }
+
+    final formattedStart = _formatDate(start);
+
+    if (end.isEmpty || end == start) {
+      return formattedStart;
+    }
+
+    return '$formattedStart - ${_formatDate(end)}';
+  }
+
+  String _formatDate(
+    String? value,
+  ) {
+    if (value == null || value.trim().isEmpty) {
+      return '-';
+    }
+
+    final date = DateTime.tryParse(value);
+
+    if (date == null) {
+      return value;
+    }
+
+    return '${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}';
+  }
+
   Widget _buildExpeditionHeader(
     Map<String, Object?> expedition,
     List<Map<String, Object?>> surveys,
@@ -2534,8 +2569,8 @@ class _SurveyListScreenState
 
 class _ExpeditionFormData {
   final String name;
-  final String dateStart;
-  final String dateEnd;
+  final DateTime dateStart;
+  final DateTime dateEnd;
   final String team;
   final String location;
   final String notes;
@@ -2681,10 +2716,8 @@ class _CreateExpeditionDialogState
       _ExpeditionFormData(
         name:
             _nameController.text.trim(),
-        dateStart:
-            _dateStart!.toIso8601String(),
-        dateEnd:
-            _dateEnd!.toIso8601String(),
+        dateStart: _dateStart!,
+        dateEnd: _dateEnd!,
         team:
             _teamController.text.trim(),
         location:
