@@ -544,35 +544,137 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     );
   }
 
-    Widget _buildExpeditionHeader() {
+  Widget _buildExpeditionHeader() {
     double totalDischarge = 0;
+    double minDischarge = double.infinity;
+    double maxDischarge = double.negativeInfinity;
+
     double totalPower = 0;
+    double minPower = double.infinity;
+    double maxPower = double.negativeInfinity;
+
+    double totalHead = 0;
+    double minHead = double.infinity;
+    double maxHead = double.negativeInfinity;
+
+    int dischargeCount = 0;
+    int hydroCount = 0;
     int powerCount = 0;
+    int headCount = 0;
 
     for (final survey in _surveys) {
-      final discharge = survey['discharge_cms'];
-      final power = survey['power_output_kw'];
+      final mode =
+          '${survey['survey_mode'] ?? 'DISCHARGE_ONLY'}';
 
-      if (discharge is num) {
-        totalDischarge += discharge.toDouble();
-      } else if (discharge != null) {
-        totalDischarge +=
-            double.tryParse(discharge.toString()) ?? 0;
+      final isHydroPower =
+          mode == 'HYDRO_POWER';
+
+      // -------------------------------------------------------
+      // DEBIT
+      // -------------------------------------------------------
+      final rawDischarge =
+          survey['discharge_cms'];
+
+      double? discharge;
+
+      if (rawDischarge is num) {
+        discharge = rawDischarge.toDouble();
+      } else if (rawDischarge != null) {
+        discharge =
+            double.tryParse(rawDischarge.toString());
       }
 
-      if (power is num) {
-        totalPower += power.toDouble();
-        powerCount++;
-      } else if (power != null) {
-        final parsedPower =
-            double.tryParse(power.toString());
+      if (discharge != null) {
+        totalDischarge += discharge;
 
-        if (parsedPower != null) {
-          totalPower += parsedPower;
+        if (discharge < minDischarge) {
+          minDischarge = discharge;
+        }
+
+        if (discharge > maxDischarge) {
+          maxDischarge = discharge;
+        }
+
+        dischargeCount++;
+      }
+
+      // -------------------------------------------------------
+      // HYDRO POWER
+      // -------------------------------------------------------
+      if (isHydroPower) {
+        hydroCount++;
+
+        final rawPower =
+            survey['power_output_kw'];
+
+        double? power;
+
+        if (rawPower is num) {
+          power = rawPower.toDouble();
+        } else if (rawPower != null) {
+          power =
+              double.tryParse(rawPower.toString());
+        }
+
+        if (power != null) {
+          totalPower += power;
+
+          if (power < minPower) {
+            minPower = power;
+          }
+
+          if (power > maxPower) {
+            maxPower = power;
+          }
+
           powerCount++;
+        }
+
+        // -----------------------------------------------------
+        // HEAD
+        // -----------------------------------------------------
+        final rawHead =
+            survey['gross_head_m'];
+
+        double? head;
+
+        if (rawHead is num) {
+          head = rawHead.toDouble();
+        } else if (rawHead != null) {
+          head =
+              double.tryParse(rawHead.toString());
+        }
+
+        if (head != null) {
+          totalHead += head;
+
+          if (head < minHead) {
+            minHead = head;
+          }
+
+          if (head > maxHead) {
+            maxHead = head;
+          }
+
+          headCount++;
         }
       }
     }
+
+    final averageDischarge =
+        dischargeCount > 0
+            ? totalDischarge / dischargeCount
+            : null;
+
+    final averagePower =
+        powerCount > 0
+            ? totalPower / powerCount
+            : null;
+
+    final averageHead =
+        headCount > 0
+            ? totalHead / headCount
+            : null;
 
     final dateStart =
         '${_expedition?['date_start'] ?? '-'}';
@@ -580,10 +682,11 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
     final dateEnd =
         _expedition?['date_end'];
 
-    final period = dateEnd == null ||
-            dateEnd.toString().trim().isEmpty
-        ? dateStart
-        : '$dateStart s/d ${dateEnd.toString()}';
+    final period =
+        dateEnd == null ||
+                dateEnd.toString().trim().isEmpty
+            ? dateStart
+            : '$dateStart s/d ${dateEnd.toString()}';
 
     return Card(
       child: Padding(
@@ -592,6 +695,9 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
           crossAxisAlignment:
               CrossAxisAlignment.start,
           children: [
+            // =================================================
+            // IDENTITAS EKSPEDISI
+            // =================================================
             Row(
               children: [
                 CircleAvatar(
@@ -620,16 +726,19 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
             Text(
               'ID: ${_expedition?['local_id'] ?? '-'}',
             ),
+
             const SizedBox(height: 4),
 
             Text(
               'Tim: ${_expedition?['team'] ?? '-'}',
             ),
+
             const SizedBox(height: 4),
 
             Text(
               'Lokasi: ${_expedition?['location'] ?? '-'}',
             ),
+
             const SizedBox(height: 4),
 
             Text(
@@ -638,46 +747,237 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
 
             const Divider(height: 24),
 
+            // =================================================
+            // RINGKASAN JUMLAH
+            // =================================================
             Row(
               children: [
                 Expanded(
                   child: _summaryBox(
-                    icon: Icons.location_on_outlined,
+                    icon:
+                        Icons.location_on_outlined,
                     label: 'Titik',
-                    value: '${_surveys.length}',
+                    value:
+                        '${_surveys.length}',
                     unit: 'survei',
                   ),
                 ),
+
                 const SizedBox(width: 8),
+
                 Expanded(
                   child: _summaryBox(
-                    icon: Icons.water_drop_outlined,
-                    label: 'Total Debit',
-                    value: totalDischarge
-                        .toStringAsFixed(2),
-                    unit: 'm³/s',
+                    icon:
+                        Icons.water_drop_outlined,
+                    label: 'Debit',
+                    value: dischargeCount > 0
+                        ? '${averageDischarge!.toStringAsFixed(2)}'
+                        : '-',
+                    unit: 'm³/s rata-rata',
                   ),
                 ),
+
                 const SizedBox(width: 8),
+
                 Expanded(
                   child: _summaryBox(
-                    icon: Icons.bolt_outlined,
-                    label: 'Total Daya',
-                    value: powerCount == 0
-                        ? '-'
-                        : totalPower
-                            .toStringAsFixed(2),
-                    unit: 'kW',
+                    icon:
+                        Icons.bolt_outlined,
+                    label: 'Hidro',
+                    value:
+                        '$hydroCount',
+                    unit: 'titik',
                   ),
                 ),
               ],
             ),
+
+            const SizedBox(height: 12),
+
+            // =================================================
+            // RENTANG DEBIT
+            // =================================================
+            if (dischargeCount > 0)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color:
+                      Colors.blue.shade50,
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.water,
+                      color:
+                          Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Rentang Debit',
+                            style: TextStyle(
+                              fontWeight:
+                                  FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${minDischarge.toStringAsFixed(3)} – '
+                            '${maxDischarge.toStringAsFixed(3)} m³/s',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // =================================================
+            // RINGKASAN HIDRO
+            // =================================================
+            if (hydroCount > 0) ...[
+              const SizedBox(height: 10),
+
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color:
+                      Colors.teal.shade50,
+                  borderRadius:
+                      BorderRadius.circular(10),
+                ),
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.bolt,
+                          color:
+                              Colors.teal.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Potensi Hidro',
+                          style: TextStyle(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _miniMetric(
+                            'Daya rata-rata',
+                            averagePower == null
+                                ? '-'
+                                : '${averagePower.toStringAsFixed(2)} kW',
+                          ),
+                        ),
+                        Expanded(
+                          child: _miniMetric(
+                            'Daya min',
+                            powerCount == 0
+                                ? '-'
+                                : '${minPower.toStringAsFixed(2)} kW',
+                          ),
+                        ),
+                        Expanded(
+                          child: _miniMetric(
+                            'Daya max',
+                            powerCount == 0
+                                ? '-'
+                                : '${maxPower.toStringAsFixed(2)} kW',
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (headCount > 0) ...[
+                      const SizedBox(height: 10),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _miniMetric(
+                              'Head rata-rata',
+                              '${averageHead!.toStringAsFixed(2)} m',
+                            ),
+                          ),
+                          Expanded(
+                            child: _miniMetric(
+                              'Head min',
+                              '${minHead.toStringAsFixed(2)} m',
+                            ),
+                          ),
+                          Expanded(
+                            child: _miniMetric(
+                              'Head max',
+                              '${maxHead.toStringAsFixed(2)} m',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
+  Widget _miniMetric(
+    String label,
+    String value,
+  ) {
+    return Padding(
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 4,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color:
+                  Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _summaryBox({
     required IconData icon,
     required String label,
