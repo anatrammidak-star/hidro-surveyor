@@ -16,6 +16,7 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
   final _db = LocalDatabase.instance;
 
   List<Map<String, Object?>> _expeditions = [];
+  Map<int, int> _surveyCounts = {};
   int _pending = 0;
   int _surveys = 0;
 
@@ -25,15 +26,27 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+    Future<void> _load() async {
     final expeditions = await _db.getExpeditions();
     final pending = await _db.countPending();
     final surveys = await _db.countSurveys();
+
+    final surveyCounts = <int, int>{};
+
+    for (final expedition in expeditions) {
+      final id = expedition['id'];
+
+      if (id is int) {
+        surveyCounts[id] =
+            await _db.countSurveysForExpedition(id);
+      }
+    }
 
     if (!mounted) return;
 
     setState(() {
       _expeditions = expeditions;
+      _surveyCounts = surveyCounts;
       _pending = pending;
       _surveys = surveys;
     });
@@ -231,22 +244,31 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
               )
             else
               ..._expeditions.map(
-                (e) => Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.forest),
+                (e) {
+                  final expeditionId = e['id'];
+                  final surveyCount = expeditionId is int
+                      ? (_surveyCounts[expeditionId] ?? 0)
+                      : 0;
+
+                  return Card(
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.forest),
+                      ),
+                      title: Text('${e['name']}'),
+                      subtitle: Text(
+                        '${e['team']}\n'
+                        '${e['location'] ?? '-'}\n'
+                        '$surveyCount survei',
+                      ),
+                      isThreeLine: true,
+                      trailing: const Icon(
+                        Icons.chevron_right,
+                      ),
+                      onTap: () => _openExpedition(e),
                     ),
-                    title: Text('${e['name']}'),
-                    subtitle: Text(
-                      '${e['team']}\n${e['location'] ?? '-'}',
-                    ),
-                    isThreeLine: true,
-                    trailing: const Icon(
-                      Icons.chevron_right,
-                    ),
-                    onTap: () => _openExpedition(e),
-                  ),
-                ),
+                  );
+                },
               ),
           ],
         ),
