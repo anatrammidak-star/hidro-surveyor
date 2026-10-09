@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/local_database.dart';
 import 'survey_form_screen.dart';
 import 'survey_result_screen.dart';
+import 'backend_test_screen.dart';
 
 class ExpeditionScreen extends StatefulWidget {
   const ExpeditionScreen({super.key});
@@ -124,6 +125,17 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
           'SiCA - Survei Cepat Air',
         ),
         actions: [
+          IconButton(
+            tooltip: 'Tes Backend SiCA',
+            icon: const Icon(Icons.cloud_outlined),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const BackendTestScreen(),
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: 'Keluar',
             icon: const Icon(

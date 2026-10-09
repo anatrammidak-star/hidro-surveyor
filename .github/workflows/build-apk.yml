@@ -7,739 +7,231 @@ on:
       - main
       - master
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-
-      # =====================================================
-      # Checkout
-      # =====================================================
-      - name: Checkout Source Code
+      - name: Checkout source code
         uses: actions/checkout@v4
 
-      # =====================================================
-      # Setup Flutter
-      # =====================================================
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.3'
-          channel: stable
-          cache: true
-
-      # =====================================================
-      # Setup Java
-      # =====================================================
       - name: Setup Java 17
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # =====================================================
-      # Check Environment
-      # =====================================================
-      - name: Check Environment
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+          channel: stable
+          cache: true
+
+      - name: Check environment
         run: |
           flutter --version
           dart --version
           java -version
 
-      # =====================================================
-      # Prepare Android Project
-      # =====================================================
-      - name: Prepare Android Project
+      # The repository's Android scaffold is incomplete. Generate a fresh
+      # Kotlin DSL scaffold, while preserving the project's custom Android source.
+      - name: Prepare Android project
+        shell: bash
         run: |
-          if [ ! -f "android/app/build.gradle" ]; then
+          set -euo pipefail
 
-            echo "========================================"
-            echo "Android project incomplete."
-            echo "Generating complete Flutter Android project."
-            echo "========================================"
+          if [ ! -f "android/app/build.gradle.kts" ]; then
+            echo "Android Kotlin DSL scaffold is missing; regenerating it."
 
-            # Backup existing custom Android source
+            backup_dir="$RUNNER_TEMP/sica_android_backup"
+            rm -rf "$backup_dir"
+            mkdir -p "$backup_dir"
+
             if [ -d "android/app/src/main" ]; then
-              mkdir -p /tmp/hydro_android_backup
-              cp -R android/app/src/main \
-                /tmp/hydro_android_backup/main
+              cp -R android/app/src/main "$backup_dir/main"
             fi
 
-            # Remove incomplete Android project
             rm -rf android
 
-            # Generate complete Android project
             flutter create \
               --platforms=android \
               --org id.go.menlhk \
               --project-name hydro_surveyor \
               .
 
-            # =================================================
-            # MERGE custom source into generated Android project
-            # =================================================
-            if [ -d "/tmp/hydro_android_backup/main" ]; then
-
-              echo "Merging existing custom Android source..."
-
-              cp -R /tmp/hydro_android_backup/main/. \
-                android/app/src/main/
-
+            if [ -d "$backup_dir/main" ]; then
+              cp -R "$backup_dir/main/." android/app/src/main/
             fi
-
-          else
-            echo "Android project already exists."
           fi
 
-          echo ""
-          echo "========================================"
-          echo "ANDROID PROJECT STRUCTURE"
-          echo "========================================"
+          test -f android/app/build.gradle.kts
+          test -f android/settings.gradle.kts
+          test -f android/app/src/main/AndroidManifest.xml
 
-          find android/app/src/main \
-            -maxdepth 3 \
-            -type f | sort
-
-      # =====================================================
-      # Configure Application Display Name
-      # =====================================================
-      - name: Configure Application Name
+      - name: Configure Android identity and SDK
+        shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          manifest = Path(
-              "android/app/src/main/AndroidManifest.xml"
+          gradle = Path("android/app/build.gradle.kts")
+          text = gradle.read_text()
+
+          def replace_one(pattern, replacement, source, label):
+              updated, count = re.subn(pattern, replacement, source, count=1, flags=re.MULTILINE)
+              if count != 1:
+                  raise SystemExit(f"ERROR: tidak dapat mengatur {label} pada build.gradle.kts")
+              return updated
+
+          text = replace_one(
+              r'^\s*namespace\s*=\s*"[^"]+"',
+              '    namespace = "id.go.menlhk.hydro_surveyor"',
+              text,
+              "namespace",
           )
+          text = replace_one(
+              r'^\s*applicationId\s*=\s*"[^"]+"',
+              '        applicationId = "id.go.menlhk.hydro_surveyor"',
+              text,
+              "applicationId",
+          )
+          text = replace_one(
+              r'^\s*compileSdk\s*=\s*.*$',
+              '    compileSdk = 36',
+              text,
+              "compileSdk",
+          )
+          gradle.write_text(text)
 
-          if not manifest.exists():
-              raise SystemExit(
-                  "ERROR: AndroidManifest.xml tidak ditemukan."
-              )
-
-          text = manifest.read_text()
-
-          # Hanya mengubah android:label.
-          # Package/application ID tidak disentuh.
-          text, count = re.subn(
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          manifest_text = manifest.read_text()
+          updated, count = re.subn(
               r'android:label="[^"]*"',
               'android:label="SiCA - Survei Cepat Air"',
-              text,
-              count=1
+              manifest_text,
+              count=1,
           )
-
           if count == 0:
-              raise SystemExit(
-                  "ERROR: android:label tidak ditemukan."
-              )
+              raise SystemExit("ERROR: android:label tidak ditemukan di AndroidManifest.xml")
+          manifest.write_text(updated)
 
-          manifest.write_text(text)
-
-          print(
-              "Nama launcher: SiCA - Survei Cepat Air"
-          )
+          print("namespace/applicationId: id.go.menlhk.hydro_surveyor")
+          print("compileSdk: 36")
+          print("launcher label: SiCA - Survei Cepat Air")
           PY
 
-          echo ""
-          echo "========================================"
-          echo "APPLICATION DISPLAY NAME"
-          echo "========================================"
+          echo "---- Android Gradle configuration ----"
+          grep -E 'namespace|applicationId|compileSdk|targetSdk|minSdk' android/app/build.gradle.kts
 
-          grep -n "android:label" \
-            android/app/src/main/AndroidManifest.xml || true
-
-      # =====================================================
-      # Configure Android SDK
-      # =====================================================
-      - name: Configure Android SDK
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("android/app/build.gradle")
-
-          if not path.exists():
-              raise SystemExit(
-                  "ERROR: android/app/build.gradle tidak ditemukan."
-              )
-
-          text = path.read_text()
-
-          replacements = {
-              "compileSdk = flutter.compileSdkVersion":
-                  "compileSdk = 35",
-
-              "compileSdkVersion flutter.compileSdkVersion":
-                  "compileSdkVersion 35",
-
-              "targetSdk = flutter.targetSdkVersion":
-                  "targetSdk = 35",
-
-              "targetSdkVersion flutter.targetSdkVersion":
-                  "targetSdkVersion 35",
-
-              "minSdk = flutter.minSdkVersion":
-                  "minSdk = 21",
-
-              "minSdkVersion flutter.minSdkVersion":
-                  "minSdkVersion 21",
-          }
-
-          for old, new in replacements.items():
-              text = text.replace(old, new)
-
-          path.write_text(text)
-          PY
-
-          echo ""
-          echo "========================================"
-          echo "ANDROID SDK CONFIGURATION"
-          echo "========================================"
-
-          grep -E \
-            "compileSdk|targetSdk|minSdk" \
-            android/app/build.gradle || true
-      # =====================================================
-      # Configure Permanent Release Signing
-      # =====================================================
-      
-      - name: Configure Permanent Release Signing
+      - name: Restore and verify permanent release keystore
+        shell: bash
         env:
           HYDRO_KEYSTORE_BASE64: ${{ secrets.HYDRO_KEYSTORE_BASE64 }}
           HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
           HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
           HYDRO_KEY_PASSWORD: ${{ secrets.HYDRO_KEY_PASSWORD }}
-
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "========================================"
-          echo "CONFIGURING PERMANENT RELEASE SIGNING"
-          echo "========================================"
+          test -n "$HYDRO_KEYSTORE_BASE64" || { echo "ERROR: secret HYDRO_KEYSTORE_BASE64 tidak tersedia"; exit 1; }
+          test -n "$HYDRO_KEYSTORE_PASSWORD" || { echo "ERROR: secret HYDRO_KEYSTORE_PASSWORD tidak tersedia"; exit 1; }
+          test -n "$HYDRO_KEY_ALIAS" || { echo "ERROR: secret HYDRO_KEY_ALIAS tidak tersedia"; exit 1; }
+          test -n "$HYDRO_KEY_PASSWORD" || { echo "ERROR: secret HYDRO_KEY_PASSWORD tidak tersedia"; exit 1; }
 
-          # -------------------------------------------------
-          # Check GitHub Secrets
-          # -------------------------------------------------
-          test -n "$HYDRO_KEYSTORE_BASE64" || {
-            echo "ERROR: HYDRO_KEYSTORE_BASE64 tidak tersedia."
-            exit 1
-          }
-
-          test -n "$HYDRO_KEYSTORE_PASSWORD" || {
-            echo "ERROR: HYDRO_KEYSTORE_PASSWORD tidak tersedia."
-            exit 1
-          }
-
-          test -n "$HYDRO_KEY_ALIAS" || {
-            echo "ERROR: HYDRO_KEY_ALIAS tidak tersedia."
-            exit 1
-          }
-
-          test -n "$HYDRO_KEY_PASSWORD" || {
-            echo "ERROR: HYDRO_KEY_PASSWORD tidak tersedia."
-            exit 1
-          }
-
-          # -------------------------------------------------
-          # Restore permanent release keystore
-          # -------------------------------------------------
-          echo "$HYDRO_KEYSTORE_BASE64" | \
-            base64 --decode > android/app/hydro-release.jks
-
-          test -s android/app/hydro-release.jks
-
-          echo "Release keystore berhasil dipulihkan."
-
-          # -------------------------------------------------
-          # Create key.properties
-          # -------------------------------------------------
-          cat > android/key.properties <<EOF
-          storePassword=$HYDRO_KEYSTORE_PASSWORD
-          keyPassword=$HYDRO_KEY_PASSWORD
-          keyAlias=$HYDRO_KEY_ALIAS
-          storeFile=hydro-release.jks
-          EOF
-
-          echo "key.properties berhasil dibuat."
-
-          # -------------------------------------------------
-          # Force release signing configuration
-          # -------------------------------------------------
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path("android/app/build.gradle")
-          text = path.read_text()
-
-          # -------------------------------------------------
-          # Load keystore properties
-          # -------------------------------------------------
-          properties_block = """
-          def keystorePropertiesFile = rootProject.file("key.properties")
-          def keystoreProperties = new Properties()
-
-          if (keystorePropertiesFile.exists()) {
-              keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
-          }
-
-          """
-
-          if "keystorePropertiesFile" not in text:
-              match = re.search(
-                  r'plugins\s*\{.*?\n\}',
-                  text,
-                  re.DOTALL
-              )
-
-              if not match:
-                  raise SystemExit(
-                      "ERROR: plugins {} block tidak ditemukan."
-                  )
-
-              text = (
-                  text[:match.end()]
-                  + "\n"
-                  + properties_block
-                  + text[match.end():]
-              )
-
-          # -------------------------------------------------
-          # Remove any existing signingConfigs block
-          # so we can create a known release configuration.
-          # -------------------------------------------------
-          text = re.sub(
-              r'\n\s*signingConfigs\s*\{.*?\n\s*\}\s*\n',
-              '\n',
-              text,
-              count=1,
-              flags=re.DOTALL
-          )
-
-          # -------------------------------------------------
-          # Insert our release signing configuration
-          # directly inside android {}
-          # -------------------------------------------------
-          signing_block = """
-              signingConfigs {
-                  release {
-                      keyAlias keystoreProperties['keyAlias']
-                      keyPassword keystoreProperties['keyPassword']
-                      storeFile file(keystoreProperties['storeFile'])
-                      storePassword keystoreProperties['storePassword']
-                  }
-              }
-
-          """
-
-          android_match = re.search(
-              r'android\s*\{',
-              text
-          )
-
-          if not android_match:
-              raise SystemExit(
-                  "ERROR: android {} block tidak ditemukan."
-              )
-
-          text = (
-              text[:android_match.end()]
-              + "\n"
-              + signing_block
-              + text[android_match.end():]
-          )
-
-          # -------------------------------------------------
-          # Force release build type to use release keystore
-          # -------------------------------------------------
-          text = text.replace(
-              "signingConfig signingConfigs.debug",
-              "signingConfig signingConfigs.release"
-          )
-
-          release_match = re.search(
-              r'buildTypes\s*\{\s*release\s*\{',
-              text,
-              re.DOTALL
-          )
-
-          if not release_match:
-              raise SystemExit(
-                  "ERROR: buildTypes { release { } tidak ditemukan."
-              )
-
-          # Remove any signingConfig inside release block
-          start = release_match.end()
-
-          remaining = text[start:]
-
-          next_build_type = re.search(
-              r'\n\s*\}',
-              remaining
-          )
-
-          if not next_build_type:
-              raise SystemExit(
-                  "ERROR: struktur release buildType tidak dapat dibaca."
-              )
-
-          release_body = remaining[:next_build_type.start()]
-
-          release_body = re.sub(
-              r'\n\s*signingConfig\s+signingConfigs\.[A-Za-z0-9_]+',
-              '',
-              release_body
-          )
-
-          release_body = (
-              "\n"
-              "        signingConfig signingConfigs.release"
-              + release_body
-          )
-
-          text = (
-              text[:start]
-              + release_body
-              + remaining[next_build_type.start():]
-          )
-
-          path.write_text(text)
-
-          print("")
-          print("========================================")
-          print("FINAL ANDROID SIGNING CONFIGURATION")
-          print("========================================")
-          print("Release signing dipaksa menggunakan:")
-          print("signingConfigs.release")
-          print("========================================")
-          PY
-
-          # -------------------------------------------------
-          # Show final signing configuration
-          # -------------------------------------------------
-          echo ""
-          echo "========================================"
-          echo "CHECKING build.gradle"
-          echo "========================================"
-
-          grep -n -A12 -B3 \
-            "signingConfigs" \
-            android/app/build.gradle || true
-
-          echo ""
-          grep -n -A15 \
-            "buildTypes" \
-            android/app/build.gradle || true
-
-          echo ""
-          echo "========================================"
-          echo "VERIFYING RELEASE KEYSTORE"
-          echo "========================================"
-
-          keytool \
-            -list \
-            -v \
-            -keystore android/app/hydro-release.jks \
-            -storepass "$HYDRO_KEYSTORE_PASSWORD" \
-            | grep -E \
-              "Alias name:|Entry type:|Owner:|SHA256:"
-
-          echo ""
-          echo "========================================"
-          echo "RELEASE SIGNING CONFIGURATION READY"
-          echo "========================================" 
-     
-      # =====================================================
-      # Verify Release Keystore
-      # =====================================================
-      - name: Verify Release Keystore
-        env:
-          HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
-          HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
-        run: |
-          echo "========================================"
-          echo "VERIFYING RELEASE KEYSTORE"
-          echo "========================================"
+          echo "$HYDRO_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/hydro-release.jks"
+          test -s "$RUNNER_TEMP/hydro-release.jks"
 
           keytool -list \
-            -keystore android/app/hydro-release.jks \
+            -keystore "$RUNNER_TEMP/hydro-release.jks" \
             -storepass "$HYDRO_KEYSTORE_PASSWORD" \
             -alias "$HYDRO_KEY_ALIAS"
 
-          echo "Release keystore valid."
+          echo "Keystore tersedia dan alias valid."
 
-      # =====================================================
-      # Check Android Resources
-      # =====================================================
-      - name: Check Android Resources
-        run: |
-          echo "========================================"
-          echo "CHECKING ANDROID RESOURCES"
-          echo "========================================"
-
-          echo ""
-          echo "Launcher resources:"
-          find android/app/src/main/res \
-            -type f | grep -E \
-            "ic_launcher|launcher" || true
-
-          echo ""
-          echo "Theme resources:"
-          find android/app/src/main/res \
-            -type f | grep -E \
-            "styles.xml|themes.xml|launch" || true
-
-          echo ""
-          echo "AndroidManifest:"
-          test -f android/app/src/main/AndroidManifest.xml
-
-          echo "AndroidManifest.xml OK"
-
-      # =====================================================
-      # Clean Flutter
-      # =====================================================
-      - name: Clean Flutter
+      - name: Resolve dependencies
         run: |
           flutter clean
-
-      # =====================================================
-      # Resolve Dependencies
-      # =====================================================
-      - name: Get Dependencies
-        run: |
           flutter pub get
 
-      # =====================================================
-      # Verify Geolocator
-      # =====================================================
-      - name: Verify Geolocator
+      - name: Show resolved dependency versions
         run: |
-          echo "========================================"
-          echo "GEOLOCATOR DEPENDENCIES"
-          echo "========================================"
+          flutter pub deps --style=compact | grep -E 'workmanager|file_picker|geolocator|geolocator_android' || true
+          echo "---- Version from pubspec ----"
+          grep -E '^version:' pubspec.yaml
 
-          flutter pub deps --style=compact | \
-            grep -E "geolocator|geolocator_android" || true
-
-          echo ""
-          echo "========================================"
-          echo "PUBSPEC LOCK"
-          echo "========================================"
-
-          sed -n '/geolocator:/,/^[^ ]/p' pubspec.lock || true
-
-          echo ""
-          echo "========================================"
-          echo "GEOLOCATOR ANDROID"
-          echo "========================================"
-
-          sed -n '/geolocator_android:/,/^[^ ]/p' pubspec.lock || true
-
-      # =====================================================
-      # Build APK
-      # =====================================================
-      - name: Build Release APK
+      - name: Build release APK
         run: |
-          set -e
+          set -euo pipefail
+          flutter build apk --release --no-tree-shake-icons
+          test -f build/app/outputs/flutter-apk/app-release.apk
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
 
-          echo "========================================"
-          echo "BUILDING RELEASE APK"
-          echo "========================================"
-
-          flutter build apk \
-            --release \
-            --no-tree-shake-icons
+      - name: Align and sign APK with permanent release key
+        shell: bash
+        env:
+          HYDRO_KEYSTORE_BASE64: ${{ secrets.HYDRO_KEYSTORE_BASE64 }}
+          HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
+          HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
+          HYDRO_KEY_PASSWORD: ${{ secrets.HYDRO_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
 
           APK="build/app/outputs/flutter-apk/app-release.apk"
+          KEYSTORE="$RUNNER_TEMP/hydro-release.jks"
 
-          test -f "$APK"
+          BUILD_TOOLS="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -n "$BUILD_TOOLS"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          AAPT="$BUILD_TOOLS/aapt"
 
-          echo ""
-          echo "========================================"
-          echo "APK BUILD SUCCESSFUL"
-          echo "========================================"
+          test -x "$APKSIGNER"
+          test -x "$ZIPALIGN"
+          test -x "$AAPT"
 
-          ls -lh "$APK"
+          TMP_DIR="$RUNNER_TEMP/sica_apk_signing"
+          rm -rf "$TMP_DIR"
+          mkdir -p "$TMP_DIR"
 
-          # =================================================
-          # Locate Android SDK tools
-          # =================================================
-
-          APKSIGNER=$(find "$ANDROID_HOME" \
-            -type f \
-            -name "apksigner" \
-            | head -n 1)
-
-          ZIPALIGN=$(find "$ANDROID_HOME" \
-            -type f \
-            -name "zipalign" \
-            | head -n 1)
-
-          if [ -z "$APKSIGNER" ]; then
-            echo "ERROR: apksigner tidak ditemukan."
-            exit 1
-          fi
-
-          if [ -z "$ZIPALIGN" ]; then
-            echo "ERROR: zipalign tidak ditemukan."
-            exit 1
-          fi
-
-          echo ""
-          echo "APKSIGNER:"
-          echo "$APKSIGNER"
-
-          echo ""
-          echo "ZIPALIGN:"
-          echo "$ZIPALIGN"
-
-          # =================================================
-          # Align APK before signing
-          # =================================================
-
-          echo ""
-          echo "========================================"
-          echo "ALIGNING APK"
-          echo "========================================"
-
-          mv "$APK" "${APK}.unsigned"
-
-          "$ZIPALIGN" \
-            -f \
-            4 \
-            "${APK}.unsigned" \
-            "$APK"
-
-          rm -f "${APK}.unsigned"
-
-          # =================================================
-          # Remove any previous APK signature
-          # =================================================
-
-          echo ""
-          echo "========================================"
-          echo "PREPARING APK FOR RELEASE SIGNING"
-          echo "========================================"
-
-          rm -rf /tmp/hydro_apk_signing
-          mkdir -p /tmp/hydro_apk_signing
-
-          cp "$APK" /tmp/hydro_apk_signing/app-unsigned.apk
-
-          # =================================================
-          # Sign APK using permanent release keystore
-          # =================================================
-
-          echo ""
-          echo "========================================"
-          echo "SIGNING APK WITH PERMANENT RELEASE KEY"
-          echo "========================================"
+          "$ZIPALIGN" -f -p 4 "$APK" "$TMP_DIR/app-aligned.apk"
 
           "$APKSIGNER" sign \
-            --ks android/app/hydro-release.jks \
+            --ks "$KEYSTORE" \
             --ks-key-alias "$HYDRO_KEY_ALIAS" \
             --ks-pass env:HYDRO_KEYSTORE_PASSWORD \
             --key-pass env:HYDRO_KEY_PASSWORD \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
-            --out "$APK" \
-            /tmp/hydro_apk_signing/app-unsigned.apk
+            --out "$TMP_DIR/app-release-signed.apk" \
+            "$TMP_DIR/app-aligned.apk"
 
-          echo ""
-          echo "========================================"
-          echo "RELEASE APK SIGNING COMPLETE"
-          echo "========================================"
+          mv "$TMP_DIR/app-release-signed.apk" "$APK"
 
-          ls -lh "$APK"
-        env:
-          HYDRO_KEYSTORE_PASSWORD: ${{ secrets.HYDRO_KEYSTORE_PASSWORD }}
-          HYDRO_KEY_ALIAS: ${{ secrets.HYDRO_KEY_ALIAS }}
-          HYDRO_KEY_PASSWORD: ${{ secrets.HYDRO_KEY_PASSWORD }}
+          "$APKSIGNER" verify --verbose "$APK"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
 
-      # =====================================================
-      # Verify APK
-      # =====================================================
-      - name: Verify APK
-        run: |
-          test -f build/app/outputs/flutter-apk/app-release.apk
+          echo "---- APK package and launcher label ----"
+          "$AAPT" dump badging "$APK" | grep -E "package: name=|application-label="
 
-          echo ""
-          echo "========================================"
-          echo "APK BERHASIL DIBUAT"
-          echo "========================================"
-
-          ls -lh \
-            build/app/outputs/flutter-apk/app-release.apk
-
-           # =====================================================
-      # Verify APK Signature and Identity
-      # =====================================================
-      - name: Verify APK Signature and Identity
-        run: |
-          echo "========================================"
-          echo "VERIFYING APK SIGNATURE"
-          echo "========================================"
-
-          APKSIGNER=$(find "$ANDROID_HOME" \
-            -type f \
-            -name "apksigner" \
-            | head -n 1)
-
-          if [ -z "$APKSIGNER" ]; then
-            echo "ERROR: apksigner tidak ditemukan."
+          PACKAGE_NAME="$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
+          if [ "$PACKAGE_NAME" != "id.go.menlhk.hydro_surveyor" ]; then
+            echo "ERROR: applicationId APK tidak sesuai: $PACKAGE_NAME"
             exit 1
           fi
 
-          echo "Using:"
-          echo "$APKSIGNER"
+          echo "APK sudah ditandatangani dan identitas paket cocok."
 
-          "$APKSIGNER" verify \
-            --verbose \
-            build/app/outputs/flutter-apk/app-release.apk
-
-          echo ""
-          echo "========================================"
-          echo "APK CERTIFICATE INFORMATION"
-          echo "========================================"
-
-          "$APKSIGNER" verify \
-            --verbose \
-            --print-certs \
-            build/app/outputs/flutter-apk/app-release.apk
-
-          echo ""
-          echo "========================================"
-          echo "APK PACKAGE AND APPLICATION NAME"
-          echo "========================================"
-
-          AAPT=$(find "$ANDROID_HOME" \
-            -type f \
-            -name "aapt" \
-            | head -n 1)
-
-          if [ -z "$AAPT" ]; then
-            echo "ERROR: aapt tidak ditemukan."
-            exit 1
-          fi
-
-          "$AAPT" dump badging \
-            build/app/outputs/flutter-apk/app-release.apk \
-            | grep -E "package: name=|application-label="
-
-          echo ""
-          echo "========================================"
-          echo "APK SIGNATURE AND IDENTITY CHECK OK"
-          echo "========================================"
-      
-      # =====================================================
-      # Upload APK
-      # =====================================================
-      - name: Upload Release APK
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
-          name: HydroSurveyor-v1.0-Release
+          name: SiCA-v1.0.2-Release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 14

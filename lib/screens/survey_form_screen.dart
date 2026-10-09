@@ -248,13 +248,11 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
   Future<void> _openMediaPicker() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: true,
+      final result = await FilePicker.pickFiles(
         type: FileType.media,
-        withData: false,
       );
 
-      if (result == null || result.files.isEmpty) return;
+      if (result.isEmpty) return;
 
       final appDir = await getApplicationDocumentsDirectory();
       final mediaRoot = Directory(
@@ -267,7 +265,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
       int imported = 0;
 
-      for (final picked in result.files) {
+      for (final picked in result) {
         final sourcePath = picked.path;
         if (sourcePath == null || sourcePath.isEmpty) continue;
 
