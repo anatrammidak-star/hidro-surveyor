@@ -101,13 +101,29 @@ jobs:
               text,
               "applicationId",
           )
+
           text = replace_one(
               r'^\s*compileSdk\s*=\s*.*$',
               '    compileSdk = 36',
               text,
               "compileSdk",
           )
+
+          text = replace_one(
+              r'(?s)buildTypes\s*\{\s*release\s*\{.*?\}\s*\}',
+              '''buildTypes {
+          release {
+              isMinifyEnabled = false
+              isShrinkResources = false
+              signingConfig = signingConfigs.getByName("debug")
+          }
+      }''',
+              text,
+              "release build type",
+          )
+
           gradle.write_text(text)
+
 
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           manifest_text = manifest.read_text()
