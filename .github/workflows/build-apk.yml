@@ -117,7 +117,7 @@ jobs:
               isShrinkResources = false
               signingConfig = signingConfigs.getByName("debug")
           }
-      }''',
+          }''',
               text,
               "release build type",
           )
