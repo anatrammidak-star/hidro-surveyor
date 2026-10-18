@@ -743,8 +743,22 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
           ),
         ),
         isThreeLine: true,
-        trailing:
-            _statusIcon(syncStatus),
+        
+trailing: Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    _statusIcon(syncStatus),
+    IconButton(
+      tooltip: 'Hapus survei',
+      icon: const Icon(
+        Icons.delete_outline,
+        color: Colors.red,
+      ),
+      onPressed: () => _deleteSurvey(survey),
+    ),
+  ],
+),
+
         onTap: surveyId == null
             ? null
             : () => _openSurvey(
