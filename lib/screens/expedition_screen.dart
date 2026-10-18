@@ -1973,8 +1973,33 @@ class _SurveyListScreenState
             ],
           ),
         ),
-        trailing:
-            _statusIcon(syncStatus),
+        trailing: Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    _statusIcon(syncStatus),
+    PopupMenuButton<String>(
+      tooltip: 'Menu survei',
+      icon: const Icon(Icons.more_vert),
+      onSelected: (value) {
+        if (value == 'delete') {
+          _deleteSurvey(survey);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem<String>(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Hapus survei'),
+            ],
+          ),
+        ),
+      ],
+    ),
+  ],
+),
         onTap: surveyId == null
             ? null
             : () => _openSurvey(
