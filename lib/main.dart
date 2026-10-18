@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'config/supabase_config.dart';
 import 'screens/expedition_screen.dart';
 
 const String syncTaskKey = 'id.go.menlhk.hydro.backgroundSync';
@@ -8,9 +10,8 @@ const String syncTaskKey = 'id.go.menlhk.hydro.backgroundSync';
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
-    // Tahap berikutnya: panggil SyncService untuk mengirim record PENDING.
-    // Database lokal menjadi sumber antrean.
-    // Tidak ada data yang dihapus hanya karena perangkat sedang offline.
+    // Sinkronisasi data survei akan ditambahkan pada tahap berikutnya.
+    // SQLite tetap menjadi penyimpanan lokal dan antrean offline.
     return true;
   });
 }
@@ -18,13 +19,26 @@ void callbackDispatcher() {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Inisialisasi Supabase hanya jika URL dan Publishable Key tersedia.
+  // Jika belum tersedia atau koneksi gagal, aplikasi tetap dapat dibuka.
+  if (SupabaseConfig.isConfigured) {
+    try {
+      await Supabase.initialize(
+        url: SupabaseConfig.url,
+        publishableKey: SupabaseConfig.publishableKey,
+      );
+    } catch (e) {
+      debugPrint('Inisialisasi Supabase gagal: $e');
+    }
+  }
+
   try {
     await Workmanager().initialize(
       callbackDispatcher,
       isInDebugMode: false,
     );
-  } catch (_) {
-    // WorkManager tidak boleh menghalangi aplikasi survei offline.
+  } catch (e) {
+    debugPrint('Inisialisasi Workmanager gagal: $e');
   }
 
   runApp(const HydroSurveyorApp());
