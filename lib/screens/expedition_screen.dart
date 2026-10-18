@@ -754,6 +754,75 @@ class _ExpeditionScreenState extends State<ExpeditionScreen> {
     );
   }
 
+  
+  Future<void> _deleteSurvey(
+    Map<String, Object?> survey,
+  ) async {
+    final surveyId = survey['id'];
+
+    if (surveyId is! int) return;
+
+    final surveyName =
+        '${survey['nama_sungai'] ?? survey['local_id'] ?? 'Survei'}';
+    final localId = '${survey['local_id'] ?? '-'}';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hapus survei?'),
+        content: Text(
+          'Survei "$surveyName" ($localId) akan dihapus '
+          'dari penyimpanan lokal, termasuk catatan medianya.\n\n'
+          'Tindakan ini tidak dapat dibatalkan.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _db.deleteSurvey(surveyId);
+
+      if (!mounted) return;
+
+      await _load();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Survei berhasil dihapus dari perangkat.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Survei tidak dapat dihapus: '
+            '${e.toString().replaceFirst('Bad state: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _openSurvey(
     int surveyId,
   ) async {
