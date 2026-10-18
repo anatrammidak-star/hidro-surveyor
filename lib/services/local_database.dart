@@ -696,6 +696,58 @@ class LocalDatabase {
         : rows.first;
   }
 
+  /// Menghapus satu survei dan catatan medianya dari SQLite.
+  /// Survei yang sudah tersinkron ditolak sampai mekanisme
+  /// penghapusan di server tersedia.
+  Future<void> deleteSurvey(int surveyId) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        'surveys',
+        columns: ['id', 'server_id', 'sync_status'],
+        where: 'id = ?',
+        whereArgs: [surveyId],
+        limit: 1,
+      );
+
+      if (rows.isEmpty) {
+        throw StateError('Survei tidak ditemukan.');
+      }
+
+      final survey = rows.first;
+      final serverId = survey['server_id'];
+      final syncStatus =
+          '${survey['sync_status'] ?? 'PENDING'}';
+
+      if (serverId != null ||
+          syncStatus.toUpperCase() == 'SYNCED') {
+        throw StateError(
+          'Survei sudah tersinkron. '
+          'Penghapusan perlu disinkronkan ke server terlebih dahulu.',
+        );
+      }
+
+      // Hapus catatan media terlebih dahulu karena
+      // tabel survey_media tidak menggunakan ON DELETE CASCADE.
+      await txn.delete(
+        'survey_media',
+        where: 'survey_id = ?',
+        whereArgs: [surveyId],
+      );
+
+      final deleted = await txn.delete(
+        'surveys',
+        where: 'id = ?',
+        whereArgs: [surveyId],
+      );
+
+      if (deleted != 1) {
+        throw StateError('Survei gagal dihapus.');
+      }
+    });
+  }
+
   // =============================================================
   // MEDIA
   // =============================================================
