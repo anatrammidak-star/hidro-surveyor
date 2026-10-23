@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/visual_analysis_result.dart';
+import '../services/on_device_visual_analysis_service.dart';
 import '../services/local_database.dart';
 import 'camera_capture_screen.dart';
 import 'survey_result_screen.dart';
@@ -58,6 +60,10 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
   CameraCaptureResult? _media;
   final List<CapturedMedia> _uploadedMedia = [];
+
+  // Pemeriksaan kesiapan evidence; belum menjalankan model AI nyata.
+  VisualAnalysisResult? _visualAnalysisResult;
+  bool _checkingAi = false;
 
   // ---------------------------------------------------------------------------
   // FIELD CORRECTION PROFILE
@@ -338,6 +344,60 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
       ...(_media?.media ?? const <CapturedMedia>[]),
       ..._uploadedMedia,
     ];
+  }
+
+
+  /// Memeriksa apakah foto lokal dapat diakses oleh layanan analisis.
+  /// Layanan saat ini masih adapter tanpa model AI; tidak menghasilkan angka.
+  Future<void> _checkAiReadiness() async {
+    if (_checkingAi) return;
+
+    final photos = _allMedia()
+        .where((item) => !item.mediaType.startsWith('VIDEO'))
+        .toList();
+
+    if (photos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tambahkan atau ambil foto terlebih dahulu.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _checkingAi = true;
+    });
+
+    try {
+      const service = UnconfiguredVisualAnalysisService();
+      final result = await service.analyzePhoto(
+        filePath: photos.first.path,
+        mediaType: photos.first.mediaType,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _visualAnalysisResult = result;
+        // Jangan tandai ANALYZED: model prediksi nyata belum terpasang.
+        _aiStatus = 'NOT_ANALYZED';
+        _aiModelVersion = result.engineId;
+        _aiNotes = result.message;
+        _aiProcessedAt = result.processedAt;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _visualAnalysisResult = null;
+        _aiNotes = 'Pemeriksaan media gagal: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _checkingAi = false;
+        });
+      }
+    }
   }
 
   Future<void> _chooseUploadedMediaType(
@@ -1420,6 +1480,43 @@ if (mounted) {
                 _aiStatusChip(),
               ],
             ),
+
+            const SizedBox(height: 10),
+
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _checkingAi ? null : _checkAiReadiness,
+                icon: _checkingAi
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.fact_check),
+                label: Text(
+                  _checkingAi
+                      ? 'Memeriksa media...'
+                      : 'Periksa Kesiapan AI',
+                ),
+              ),
+            ),
+
+            if (_visualAnalysisResult?.message != null || _aiNotes != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.withOpacity(0.07),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _visualAnalysisResult?.message ?? _aiNotes!,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
 
             const SizedBox(height: 10),
 
