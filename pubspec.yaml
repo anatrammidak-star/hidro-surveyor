@@ -21,6 +21,7 @@ dependencies:
   signature: ^5.3.3
   intl: ^0.19.0
   workmanager: ^0.7.0
+  video_thumbnail: ^0.5.6
 
   http: ^1.2.0
   file_picker: ^13.1.0
