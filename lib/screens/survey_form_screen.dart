@@ -11,6 +11,7 @@ import '../services/on_device_visual_analysis_service.dart';
 import '../services/local_database.dart';
 import 'camera_capture_screen.dart';
 import 'survey_result_screen.dart';
+import 'video_float_analysis_screen.dart';
 
 class SurveyFormScreen extends StatefulWidget {
   final int expeditionId;
@@ -457,6 +458,101 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
         mediaType: selected,
       );
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // OFFLINE COMPUTER VISION: ANALISIS VIDEO OBJEK TERAPUNG
+  // ---------------------------------------------------------------------------
+
+  Future<void> _openVideoFloatAnalysis() async {
+    final videos = _allMedia()
+        .where((item) => item.mediaType.startsWith('VIDEO'))
+        .toList();
+
+    if (videos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Belum ada video. Rekam video melalui Kamera atau impor video melalui Upload.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    CapturedMedia? selectedVideo;
+    if (videos.length == 1) {
+      selectedVideo = videos.first;
+    } else {
+      selectedVideo = await showModalBottomSheet<CapturedMedia>(
+        context: context,
+        builder: (sheetContext) => SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const ListTile(
+                title: Text(
+                  'Pilih video untuk dianalisis',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ...videos.map(
+                (video) => ListTile(
+                  leading: const Icon(Icons.video_file),
+                  title: Text(
+                    path.basename(video.path),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(video.mediaType),
+                  onTap: () => Navigator.pop(sheetContext, video),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (selectedVideo == null || !mounted) return;
+
+    final videoFile = File(selectedVideo.path);
+    if (!await videoFile.exists()) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('File video tidak ditemukan di penyimpanan perangkat.'),
+        ),
+      );
+      return;
+    }
+
+    final result = await Navigator.push<double>(
+      context,
+      MaterialPageRoute<double>(
+        builder: (_) => VideoFloatAnalysisScreen(
+          videoPath: selectedVideo!.path,
+        ),
+      ),
+    );
+
+    if (!mounted || result == null || !result.isFinite || result <= 0) return;
+
+    setState(() {
+      _velocityCtrl.text = result.toStringAsFixed(3);
+      _aiNotes =
+          'Kecepatan permukaan diisi dari pelacakan centroid warna pada video. '
+          'Periksa kualitas lintasan dan validasi hasil di lapangan.';
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Kecepatan permukaan dari computer vision diterapkan: '
+          '${result.toStringAsFixed(3)} m/s. Periksa hasil sebelum menyimpan survei.',
+        ),
+      ),
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1401,6 +1497,27 @@ if (mounted) {
                   ),
                 ),
               ],
+            ),
+
+            const SizedBox(height: 10),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _openVideoFloatAnalysis,
+                icon: const Icon(Icons.track_changes),
+                label: const Text('Analisis Computer Vision dari Video'),
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            const Text(
+              'Pelacakan warna berjalan di perangkat. Pilih warna objek dan '
+              'kalibrasikan skala pada frame awal; aplikasi kemudian melacak '
+              'objek otomatis. Hasil kecepatan akan mengisi kolom kecepatan '
+              'permukaan dan tetap perlu diperiksa sebelum survei disimpan.',
+              style: TextStyle(fontSize: 12),
             ),
 
             if (_uploadedMedia.isNotEmpty) ...[
