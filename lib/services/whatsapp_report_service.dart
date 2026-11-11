@@ -1,75 +1,31 @@
-
 import 'dart:io';
 
 import 'package:share_plus/share_plus.dart';
 
-/// Layanan untuk menyusun dan membagikan laporan survei melalui
-/// menu berbagi Android. Petugas tetap memilih WhatsApp dan penerima.
 class WhatsAppReportService {
   WhatsAppReportService._();
 
-  /// Membuat laporan teks dan membagikannya bersama media yang tersedia.
-  ///
-  /// Semua parameter pengukuran boleh null jika belum diisi.
-  /// File media yang tidak ditemukan akan dilewati.
-  static Future<ShareResult> shareSurveyReport({
+  static Future<ShareResult> shareSurvey({
     required String surveyId,
-    required String surveyMode,
-    required String namaUpt,
-    required String bidangSeksi,
-    required String namaSungai,
-    required String namaPetugas,
-    required String nipPetugas,
-    required DateTime waktuSurvey,
-    required double? latitude,
-    required double? longitude,
-    required double? altitudeGps,
-    required double? lebarSungaiM,
-    required double? kedalamanM,
-    required double? kecepatanPermukaanMps,
-    required double? kecepatanRataRataMps,
-    required double? luasPenampangM2,
-    required double? debitM3s,
-    required double? tinggiJatuhKotorM,
-    required double? tinggiJatuhBersihM,
-    required double? dayaKw,
-    required String? rekomendasiTurbin,
-    required String statusAnalisisFoto,
-    required String catatanAnalisis,
-    required List<String> mediaPaths,
+    required Map<String, Object?> survey,
+    required List<Map<String, Object?>> media,
   }) async {
-    final report = _buildReport(
+    final text = _buildReport(
       surveyId: surveyId,
-      surveyMode: surveyMode,
-      namaUpt: namaUpt,
-      bidangSeksi: bidangSeksi,
-      namaSungai: namaSungai,
-      namaPetugas: namaPetugas,
-      nipPetugas: nipPetugas,
-      waktuSurvey: waktuSurvey,
-      latitude: latitude,
-      longitude: longitude,
-      altitudeGps: altitudeGps,
-      lebarSungaiM: lebarSungaiM,
-      kedalamanM: kedalamanM,
-      kecepatanPermukaanMps: kecepatanPermukaanMps,
-      kecepatanRataRataMps: kecepatanRataRataMps,
-      luasPenampangM2: luasPenampangM2,
-      debitM3s: debitM3s,
-      tinggiJatuhKotorM: tinggiJatuhKotorM,
-      tinggiJatuhBersihM: tinggiJatuhBersihM,
-      dayaKw: dayaKw,
-      rekomendasiTurbin: rekomendasiTurbin,
-      statusAnalisisFoto: statusAnalisisFoto,
-      catatanAnalisis: catatanAnalisis,
+      survey: survey,
     );
 
     final files = <XFile>[];
 
-    for (final filePath in mediaPaths) {
-      if (filePath.trim().isEmpty) continue;
+    for (final item in media) {
+      final localPath = '${item['local_path'] ?? ''}'.trim();
 
-      final file = File(filePath);
+      if (localPath.isEmpty) {
+        continue;
+      }
+
+      final file = File(localPath);
+
       if (await file.exists()) {
         files.add(XFile(file.path));
       }
@@ -77,110 +33,143 @@ class WhatsAppReportService {
 
     if (files.isEmpty) {
       return Share.share(
-        report,
-        subject: 'Laporan Survei Hydro Surveyor - $surveyId',
+        text,
+        subject: 'Hydro Surveyor - $surveyId',
       );
     }
 
     return Share.shareXFiles(
       files,
-      subject: 'Laporan Survei Hydro Surveyor - $surveyId',
-      text: report,
+      subject: 'Hydro Surveyor - $surveyId',
+      text: text,
     );
+  }
+
+  static String _value(
+    Map<String, Object?> survey,
+    String key, {
+    int decimals = 3,
+    String suffix = '',
+  }) {
+    final value = survey[key];
+
+    if (value == null) {
+      return '-';
+    }
+
+    final number = value is num
+        ? value.toDouble()
+        : double.tryParse(value.toString());
+
+    if (number == null || !number.isFinite) {
+      return '-';
+    }
+
+    return '${number.toStringAsFixed(decimals)}$suffix';
+  }
+
+  static String _text(
+    Map<String, Object?> survey,
+    String key,
+  ) {
+    final value = survey[key];
+
+    if (value == null) {
+      return '-';
+    }
+
+    final result = value.toString().trim();
+
+    return result.isEmpty ? '-' : result;
+  }
+
+  static String _date(
+    Map<String, Object?> survey,
+    String key,
+  ) {
+    final value = survey[key];
+
+    if (value == null) {
+      return '-';
+    }
+
+    final date = DateTime.tryParse(value.toString());
+
+    if (date == null) {
+      return value.toString();
+    }
+
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+
+    return '$day/$month/${date.year} $hour:$minute';
   }
 
   static String _buildReport({
     required String surveyId,
-    required String surveyMode,
-    required String namaUpt,
-    required String bidangSeksi,
-    required String namaSungai,
-    required String namaPetugas,
-    required String nipPetugas,
-    required DateTime waktuSurvey,
-    required double? latitude,
-    required double? longitude,
-    required double? altitudeGps,
-    required double? lebarSungaiM,
-    required double? kedalamanM,
-    required double? kecepatanPermukaanMps,
-    required double? kecepatanRataRataMps,
-    required double? luasPenampangM2,
-    required double? debitM3s,
-    required double? tinggiJatuhKotorM,
-    required double? tinggiJatuhBersihM,
-    required double? dayaKw,
-    required String? rekomendasiTurbin,
-    required String statusAnalisisFoto,
-    required String catatanAnalisis,
+    required Map<String, Object?> survey,
   }) {
-    String number(double? value, {int decimals = 3}) {
-      if (value == null || !value.isFinite) {
-        return 'Belum tersedia';
-      }
-      return value.toStringAsFixed(decimals);
-    }
-
-    String text(String value) {
-      return value.trim().isEmpty ? '-' : value.trim();
-    }
-
-    final date =
-        '${waktuSurvey.day.toString().padLeft(2, '0')}-'
-        '${waktuSurvey.month.toString().padLeft(2, '0')}-'
-        '${waktuSurvey.year} '
-        '${waktuSurvey.hour.toString().padLeft(2, '0')}:'
-        '${waktuSurvey.minute.toString().padLeft(2, '0')}';
-
-    final modeLabel = surveyMode == 'HYDRO_POWER'
-        ? 'Potensi mikro/minihidro'
-        : 'Pengukuran debit';
-
-    final coordinate = latitude != null && longitude != null
-        ? '${latitude.toStringAsFixed(6)}, '
-            '${longitude.toStringAsFixed(6)}'
-        : 'GPS belum tersedia';
+    final mode =
+        _text(survey, 'survey_mode') == 'HYDRO_POWER'
+            ? 'Potensi Mikro/Minihidro'
+            : 'Pengukuran Debit';
 
     return '''
 LAPORAN SURVEI HYDRO SURVEYOR
 ================================
 
 IDENTITAS SURVEI
-ID Survei       : $surveyId
-Jenis Survei    : $modeLabel
-Waktu           : $date
-UPT             : ${text(namaUpt)}
-Bidang/Seksi    : ${text(bidangSeksi)}
-Nama Sungai     : ${text(namaSungai)}
-Petugas         : ${text(namaPetugas)}
-NIP             : ${text(nipPetugas)}
+ID Survei              : $surveyId
+ID Lokal                : ${_text(survey, 'local_id')}
+Jenis Survei            : $mode
+Waktu Survei            : ${_date(survey, 'waktu_survey')}
+
+UPT / Balai             : ${_text(survey, 'nama_upt')}
+Bidang / Seksi          : ${_text(survey, 'bidang_seksi')}
+Nama Sungai / Air Terjun: ${_text(survey, 'nama_sungai')}
+
+PETUGAS
+Nama                    : ${_text(survey, 'nama_penanggung_jawab')}
+NIP                     : ${_text(survey, 'nip_penanggung_jawab')}
 
 LOKASI
-Koordinat       : $coordinate
-Elevasi GPS     : ${number(altitudeGps)} m
+Latitude                : ${_value(survey, 'latitude', decimals: 6)}
+Longitude               : ${_value(survey, 'longitude', decimals: 6)}
+Elevasi GPS             : ${_value(survey, 'altitude_gps', decimals: 1, suffix: ' m')}
 
-HASIL PENGUKURAN
-Lebar sungai    : ${number(lebarSungaiM)} m
-Kedalaman       : ${number(kedalamanM)} m
-Kecepatan permukaan : ${number(kecepatanPermukaanMps)} m/s
-Kecepatan rata-rata : ${number(kecepatanRataRataMps)} m/s
-Luas penampang  : ${number(luasPenampangM2)} m2
-Debit           : ${number(debitM3s)} m3/s
-Tinggi jatuh kotor : ${number(tinggiJatuhKotorM)} m
-Tinggi jatuh bersih : ${number(tinggiJatuhBersihM)} m
-Estimasi daya   : ${number(dayaKw)} kW
-Rekomendasi turbin : ${text(rekomendasiTurbin ?? '')}
+PENGUKURAN LAPANGAN
+Lebar Sungai            : ${_value(survey, 'river_width_m', suffix: ' m')}
+Kedalaman               : ${_value(survey, 'depth_estimate_m', suffix: ' m')}
+Kecepatan Permukaan     : ${_value(survey, 'surface_velocity_mps', suffix: ' m/s')}
+Kecepatan Rata-rata     : ${_value(survey, 'mean_velocity_mps', suffix: ' m/s')}
+Luas Penampang          : ${_value(survey, 'cross_section_area_sqm', suffix: ' m²')}
 
-ANALISIS FOTO/VIDEO
-Status analisis : ${text(statusAnalisisFoto)}
-Catatan         : ${text(catatanAnalisis)}
+HASIL KOREKSI
+Debit                    : ${_value(survey, 'corrected_discharge_cms', suffix: ' m³/s')}
+Gross Head               : ${_value(survey, 'gross_head_m', suffix: ' m')}
+Net Head                 : ${_value(survey, 'corrected_head_m', suffix: ' m')}
+Daya                     : ${_value(survey, 'corrected_power_kw', suffix: ' kW')}
+Rekomendasi Turbin       : ${_text(survey, 'recommended_turbine')}
 
-Catatan:
-Hasil merupakan data survei awal. Estimasi visual dan perhitungan
-perlu divalidasi dengan pengukuran lapangan sebelum digunakan
-sebagai dasar keputusan teknis.
+METADATA ANALISIS
+Status AI                : ${_text(survey, 'ai_status')}
+Model AI                 : ${_text(survey, 'ai_model_version')}
+Quality Score             : ${_value(survey, 'ai_quality_score', decimals: 2)}
+Jumlah Evidence           : ${_text(survey, 'ai_evidence_count')}
+Precision Level           : ${_text(survey, 'precision_level')}
+Metode Estimasi           : ${_text(survey, 'estimation_method')}
+Confidence                : ${_text(survey, 'confidence_level')}
 
-Dikirim melalui aplikasi Hydro Surveyor.
+CATATAN
+${_text(survey, 'ai_notes')}
+
+================================
+Laporan dibuat oleh Hydro Surveyor.
+Hasil estimasi visual/AI merupakan pendukung survei lapangan
+dan tetap harus divalidasi sebelum digunakan untuk keputusan teknis.
 ''';
   }
 }
