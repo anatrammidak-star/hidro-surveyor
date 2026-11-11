@@ -259,7 +259,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
         type: FileType.media,
       );
 
-      if (result.isEmpty) return;
+      if (result == null || result.files.isEmpty) return;
 
       final appDir = await getApplicationDocumentsDirectory();
       final mediaRoot = Directory(
@@ -272,7 +272,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
       int imported = 0;
 
-      for (final picked in result) {
+      for (final picked in result.files) {
         final sourcePath = picked.path;
         if (sourcePath == null || sourcePath.isEmpty) continue;
 
@@ -348,8 +348,11 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
   }
 
 
-  /// Memeriksa apakah foto lokal dapat diakses oleh layanan analisis.
-  /// Layanan saat ini masih adapter tanpa model AI; tidak menghasilkan angka.
+  /// Menjalankan analisis AI lokal/offline pada seluruh foto evidence.
+  ///
+  /// Modul ML Kit ini menganalisis evidence (objek, manusia, dan label
+  /// lingkungan). Ia sengaja tidak membuat angka debit/head/daya karena
+  /// pengukuran hidrologi membutuhkan model terkalibrasi dan referensi fisik.
   Future<void> _checkAiReadiness() async {
     if (_checkingAi) return;
 
@@ -360,7 +363,9 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
     if (photos.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Tambahkan atau ambil foto terlebih dahulu.'),
+          content: Text(
+            'Tambahkan atau ambil foto terlebih dahulu.',
+          ),
         ),
       );
       return;
@@ -368,37 +373,123 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
     setState(() {
       _checkingAi = true;
+      _aiStatus = 'PROCESSING';
+      _aiModelVersion = 'mlkit-on-device-v1';
+      _aiNotes = 'AI lokal sedang menganalisis foto...';
+      _aiProcessedAt = null;
+      _aiQualityScore = null;
     });
 
+    final service = MlKitVisualAnalysisService();
+
     try {
-      const service = UnconfiguredVisualAnalysisService();
-      final result = await service.analyzePhoto(
-        filePath: photos.first.path,
-        mediaType: photos.first.mediaType,
-      );
+      final results = <VisualAnalysisResult>[];
+
+      for (final photo in photos) {
+        final result = await service.analyzePhoto(
+          filePath: photo.path,
+          mediaType: photo.mediaType,
+        );
+        results.add(result);
+      }
+
+      final completed = results
+          .where(
+            (item) =>
+                item.status == VisualAnalysisStatus.completed,
+          )
+          .toList();
+
+      if (completed.isEmpty) {
+        throw Exception(
+          'Tidak ada foto yang berhasil dianalisis oleh AI lokal.',
+        );
+      }
+
+      final score = _calculateAiEvidenceScore(results);
+      final messages = completed
+          .map((item) => item.message ?? '')
+          .where((item) => item.trim().isNotEmpty)
+          .toList();
 
       if (!mounted) return;
+
       setState(() {
-        _visualAnalysisResult = result;
-        // Jangan tandai ANALYZED: model prediksi nyata belum terpasang.
-        _aiStatus = 'NOT_ANALYZED';
-        _aiModelVersion = result.engineId;
-        _aiNotes = result.message;
-        _aiProcessedAt = result.processedAt;
+        _visualAnalysisResult = completed.first;
+        _aiStatus = 'ANALYZED';
+        _aiModelVersion = 'mlkit-on-device-v1';
+        _aiQualityScore = score;
+        _aiProcessedAt = DateTime.now();
+        _aiNotes =
+            'Analisis ${completed.length} dari ${photos.length} foto selesai. '
+            'Evidence score ${(score * 100).toStringAsFixed(0)}/100. '
+            '${messages.join(' ')}';
+
+        // Tidak ada angka hidrologi yang dibuat oleh AI umum.
+        _visualDischargeMin = null;
+        _visualDischargeBest = null;
+        _visualDischargeMax = null;
+        _visualHeadMin = null;
+        _visualHeadBest = null;
+        _visualHeadMax = null;
+        _visualPowerMin = null;
+        _visualPowerBest = null;
+        _visualPowerMax = null;
       });
     } catch (e) {
       if (!mounted) return;
+
       setState(() {
         _visualAnalysisResult = null;
-        _aiNotes = 'Pemeriksaan media gagal: $e';
+        _aiStatus = 'FAILED';
+        _aiModelVersion = 'mlkit-on-device-v1';
+        _aiNotes = 'Analisis AI lokal gagal: $e';
+        _aiProcessedAt = DateTime.now();
       });
     } finally {
+      await service.close();
+
       if (mounted) {
         setState(() {
           _checkingAi = false;
         });
       }
     }
+  }
+
+  double _calculateAiEvidenceScore(
+    List<VisualAnalysisResult> results,
+  ) {
+    if (results.isEmpty) {
+      return 0.0;
+    }
+
+    double total = 0.0;
+
+    for (final result in results) {
+      final message = result.message?.toLowerCase() ?? '';
+      double score = 0.0;
+
+      if (message.contains('manusia terdeteksi')) {
+        score += 0.40;
+      }
+
+      if (message.contains('label lingkungan air terdeteksi')) {
+        score += 0.40;
+      }
+
+      if (message.contains('objek terdeteksi:')) {
+        score += 0.10;
+      }
+
+      if (message.contains('referensi fisik tersedia')) {
+        score += 0.10;
+      }
+
+      total += score.clamp(0.0, 1.0);
+    }
+
+    return (total / results.length).clamp(0.0, 1.0);
   }
 
   Future<void> _chooseUploadedMediaType(
@@ -1237,10 +1328,10 @@ if (mounted) {
             const SizedBox(height: 6),
 
             const Text(
-              'Foto dan video menjadi evidence utama '
-              'untuk prediction engine. Jangan menganggap '
-              'angka AI tersedia sebelum engine benar-benar '
-              'memproses media.',
+              'Foto dan video menjadi evidence utama. AI lokal '
+              'digunakan untuk menganalisis kualitas evidence '
+              'dan objek pada foto. Angka hidrologi tetap '
+              'berasal dari pengukuran lapangan/video.',
               style: TextStyle(
                 fontSize: 13,
               ),
@@ -1565,17 +1656,14 @@ if (mounted) {
   // ---------------------------------------------------------------------------
 
   Widget _buildAiPredictionCard() {
-    final analyzed =
-        _aiStatus == 'ANALYZED';
+    final analyzed = _aiStatus == 'ANALYZED';
 
     return Card(
       elevation: 1,
       child: Padding(
-        padding:
-            const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(14),
         child: Column(
-          crossAxisAlignment:
-              CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -1586,20 +1674,17 @@ if (mounted) {
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'AI Prediction',
+                    'AI Analisis Foto Offline',
                     style: TextStyle(
                       fontSize: 18,
-                      fontWeight:
-                          FontWeight.bold,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
                 _aiStatusChip(),
               ],
             ),
-
             const SizedBox(height: 10),
-
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
@@ -1610,15 +1695,14 @@ if (mounted) {
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.fact_check),
+                    : const Icon(Icons.auto_awesome),
                 label: Text(
                   _checkingAi
-                      ? 'Memeriksa media...'
-                      : 'Periksa Kesiapan AI',
+                      ? 'Menganalisis foto...'
+                      : 'Analisis Foto Offline dengan AI',
                 ),
               ),
             ),
-
             if (_visualAnalysisResult?.message != null || _aiNotes != null) ...[
               const SizedBox(height: 8),
               Container(
@@ -1634,50 +1718,52 @@ if (mounted) {
                 ),
               ),
             ],
-
             const SizedBox(height: 10),
-
-            if (!analyzed) ...[
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.all(12),
-                decoration:
-                    BoxDecoration(
-                  color:
-                      Colors.indigo.withOpacity(0.06),
-                  borderRadius:
-                      BorderRadius.circular(8),
-                  border: Border.all(
-                    color:
-                        Colors.indigo.withOpacity(0.20),
-                  ),
-                ),
-                child: const Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Belum dianalisis',
-                      style: TextStyle(
-                        fontWeight:
-                            FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Prediction engine AI belum terhubung '
-                      'pada build ini. Tidak ada angka debit, '
-                      'head, atau daya yang dibuat secara '
-                      'heuristik dari foto/video.',
-                      style: TextStyle(
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.indigo.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Colors.indigo.withOpacity(0.20),
                 ),
               ),
-            ] else ...[
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    analyzed ? 'AI evidence sudah dianalisis' : 'AI evidence',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'AI ini bekerja lokal/offline untuk mengenali objek, '
+                    'manusia sebagai kandidat skala, dan label lingkungan. '
+                    'AI umum ini belum menghasilkan angka debit, head, atau '
+                    'daya. Angka hidrologi tetap berasal dari pengukuran '
+                    'lapangan dan/atau analisis video yang sudah tersedia.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            _infoRow('Model', _aiModelVersion),
+            _infoRow('Evidence', '${_aiEvidenceCount()} file'),
+            _infoRow('Confidence', _confidenceLevel()),
+            _infoRow('Status', _aiStatus),
+            if (_aiProcessedAt != null)
+              _infoRow(
+                'Diproses',
+                _aiProcessedAt!.toLocal().toString(),
+              ),
+            if (_visualDischargeMin != null ||
+                _visualHeadMin != null ||
+                _visualPowerMin != null) ...[
+              const Divider(height: 20),
               _buildRangeRow(
                 'Debit',
                 _visualDischargeMin,
@@ -1700,25 +1786,6 @@ if (mounted) {
                 'kW',
               ),
             ],
-
-            const SizedBox(height: 10),
-
-            _infoRow(
-              'Model',
-              _aiModelVersion,
-            ),
-            _infoRow(
-              'Evidence',
-              '${_aiEvidenceCount()} file',
-            ),
-            _infoRow(
-              'Confidence',
-              _confidenceLevel(),
-            ),
-            _infoRow(
-              'Precision level',
-              _precisionLevel(),
-            ),
           ],
         ),
       ),
