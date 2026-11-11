@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../services/local_database.dart';
+import '../services/whatsapp_report_service.dart';
 
 class _VideoPlayerScreen extends StatefulWidget {
   final String filePath;
