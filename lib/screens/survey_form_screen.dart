@@ -259,7 +259,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
         type: FileType.media,
       );
 
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.isEmpty) return;
 
       final appDir = await getApplicationDocumentsDirectory();
       final mediaRoot = Directory(
@@ -272,7 +272,7 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
       int imported = 0;
 
-      for (final picked in result.files) {
+      for (final picked in result) {
         final sourcePath = picked.path;
         if (sourcePath == null || sourcePath.isEmpty) continue;
 
