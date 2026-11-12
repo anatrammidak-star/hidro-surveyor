@@ -257,6 +257,93 @@ class _SurveyResultScreenState
     );
   }
 
+  Future<void> _sendToWhatsApp() async {
+    if (_survey == null) {
+      return;
+    }
+
+    try {
+      await WhatsAppReportService.shareSurvey(
+        surveyId: _text('local_id'),
+        survey: _survey!,
+        media: _media,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Menu berbagi terbuka. Pilih WhatsApp dan kontak pusat tujuan.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gagal membuka menu pengiriman: $e',
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget _buildWhatsAppCard() {
+    return Card(
+      color: Colors.green.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(
+                  Icons.send,
+                  color: Colors.green,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Kirim Laporan',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Petugas mengirim laporan secara manual. '
+              'Laporan teks dan file dokumentasi lokal akan '
+              'dibawa ke menu berbagi Android; pilih WhatsApp '
+              'dan kontak pusat tujuan.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _sendToWhatsApp,
+                icon: const Icon(Icons.chat),
+                label: const Text('Kirim Laporan via WhatsApp'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     if (_loading) {
       return const Center(
@@ -305,6 +392,9 @@ class _SurveyResultScreenState
           const SizedBox(height: 12),
 
           _buildDocumentationCard(),
+          const SizedBox(height: 12),
+
+          _buildWhatsAppCard(),
           const SizedBox(height: 12),
 
           _buildMetadataCard(),
@@ -514,14 +604,15 @@ class _SurveyResultScreenState
               ),
             ],
 
-            if (aiStatus == 'NOT_ANALYZED')
-              _notice(
-                icon: Icons.info_outline,
-                text:
-                    'Prediction engine AI belum terhubung. '
-                    'Tidak ada angka AI yang dibuat secara '
-                    'heuristik.',
-              ),
+            _notice(
+              icon: Icons.info_outline,
+              text:
+                  aiStatus == 'ANALYZED'
+                      ? 'AI lokal telah menganalisis evidence foto. '
+                          'Model umum ini belum menghasilkan estimasi '
+                          'numerik debit, head, atau daya.'
+                      : 'AI lokal belum menjalankan analisis evidence.',
+            ),
           ],
         ),
       ),
