@@ -12,6 +12,7 @@ import '../services/local_database.dart';
 import 'camera_capture_screen.dart';
 import 'survey_result_screen.dart';
 import 'video_float_analysis_screen.dart';
+import '../widgets/repeated_measurement_dialog.dart';
 
 class SurveyFormScreen extends StatefulWidget {
   final int expeditionId;
@@ -61,6 +62,10 @@ class _SurveyFormScreenState extends State<SurveyFormScreen> {
 
   CameraCaptureResult? _media;
   final List<CapturedMedia> _uploadedMedia = [];
+
+  // Catatan pengukuran berulang untuk transparansi hasil lapangan.
+  // Nilai yang masuk ke controller tetap merupakan nilai rata-rata.
+  final Map<TextEditingController, RepeatedMeasurementResult> _measurementResults = {};
 
   // Pemeriksaan kesiapan evidence; belum menjalankan model AI nyata.
   VisualAnalysisResult? _visualAnalysisResult;
@@ -2454,10 +2459,30 @@ if (mounted) {
   // NUMBER FIELD
   // ---------------------------------------------------------------------------
 
+  Future<void> _editRepeatedMeasurement({
+    required TextEditingController controller,
+    required String label,
+  }) async {
+    final result = await showRepeatedMeasurementDialog(
+      context: context,
+      title: label,
+      initialValue: _num(controller),
+    );
+
+    if (result == null || !mounted) return;
+
+    setState(() {
+      controller.text = result.average.toStringAsFixed(3);
+      _measurementResults[controller] = result;
+    });
+  }
+
   Widget _numberField(
     TextEditingController controller,
     String label,
   ) {
+    final measurement = _measurementResults[controller];
+
     return Padding(
       padding:
           const EdgeInsets.only(
@@ -2466,16 +2491,28 @@ if (mounted) {
       child: TextFormField(
         controller:
             controller,
-        keyboardType:
-            const TextInputType
-                .numberWithOptions(
-          decimal: true,
+        readOnly: true,
+        showCursor: false,
+        onTap: () => _editRepeatedMeasurement(
+          controller: controller,
+          label: label,
         ),
         decoration:
             InputDecoration(
           labelText: label,
           border:
               const OutlineInputBorder(),
+          suffixIcon: const Icon(
+            Icons.straighten,
+          ),
+          helperText: measurement == null
+              ? 'Ketuk untuk memilih 1 atau 3 pengukuran'
+              : measurement.count == 3
+                  ? 'Rata-rata 3 pengukuran: '
+                      '${measurement.readings.map((value) => value.toStringAsFixed(3)).join(' • ')}'
+                  : '1 pengukuran: '
+                      '${measurement.readings.first.toStringAsFixed(3)}',
+          helperMaxLines: 2,
         ),
         validator: (value) {
           if (value == null ||
